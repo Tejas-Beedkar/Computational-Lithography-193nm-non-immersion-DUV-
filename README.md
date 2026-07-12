@@ -52,6 +52,17 @@ The resulting masks look bizarre: serifs on corners, hammerheads on line ends, a
 
 As can be seen, the mask does not match the wafer image, but produces the image we were targeting. 
 
+Out capstone aims to proide a SMO solution tool that can generate freeform DOEs and masks for reticle patterns for Non- Immersion ArF (193nm) Excimer Laser Deep Ultraviolet Machines for Chemically Amplified Resists with Bottom Anti-Reflective Coating
+
+The Capstone is capable of generating solutions such as 
+
+![My Image](https://github.com/Tejas-Beedkar/Computational-Lithography-193nm-non-immersion-DUV-/blob/main/images/sample%20run.png)
+
+via a python applet 
+
+![Demo](https://github.com/Tejas-Beedkar/Computational-Lithography-193nm-non-immersion-DUV-/blob/main/images/Video.gif)
+
+> [!NOTE] - A Nvidia GPU is required as the library uses `cupy` for efficient execution of the FFT and IFFT loops
 
 ## How Computational Lithography Works with SMO
 
