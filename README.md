@@ -4,7 +4,7 @@
 
 ### Executive Program in Semiconductor Manufacturing - IIT Delhi
 
---
+--------------------------------------------------------------------------------
 
 Tejas Beedkar <br>
 Sushma Shetty <br>
@@ -46,17 +46,18 @@ Computational:  target ──► [solve inverse] ──► weird mask ──► 
 
 The resulting masks look bizarre: serifs on corners, hammerheads on line ends, and **sub-resolution assist features (SRAFs)** — bars too small to print themselves, placed to shape a neighbor's diffraction. The mask becomes a **computed diffraction pre-compensation**.
 
-![Local Image](images/19.png)
+![My Image](images/019.png)
 
 [REF: https://digital.laserfocusworld.com/laserfocusworld/202104/MobilePagedArticle.action?articleId=1676211#articleId1676211]
 
+As can be seen, the mask does not match the wafer image, but produces the image we were targeting. 
 
 
-## The tiers
+## How Computational Lithography Works with SMO
 
-- **OPC** — nudge polygon *edges* to compensate proximity effects. Mask keeps roughly the drawn shape.
-- **ILT** — drop the polygon constraint. Treat the mask as a free pixel field and solve the full inverse problem. Curvilinear, non-intuitive, better — at higher compute cost.
-- **SMO** — also optimize the light itself.
+Chips are made by shining light through a stencil (the *mask*) onto a silicon wafer. The problem: the features we want are smaller than the light itself, so the lens blurs them. Sharp corners come out rounded, lines come out short, and nearby shapes bleed into each other. **Draw what you want, and you don't get it.**
+
+So instead of drawing what we want, we **draw whatever pre-distorted shape the blur will turn *into* what we want** — like aiming upwind to hit a target. Since we can simulate the blur on a computer, we can run it backwards: start from the desired result, and work out what warped stencil produces it. **SMO** goes one step further and also reshapes the *lighting* — where the light comes from, not just what it passes through — because the angle light arrives at changes what the lens can capture. Optimize both together, and the result looks bizarre: a stencil covered in strange nubs and bars that never print, lit from an oddly-shaped ring of angles. But that ugly pair prints the crisp pattern you actually wanted — reliably, even as focus and brightness drift on the factory floor.
 
 ## What SMO adds
 
@@ -84,25 +85,8 @@ That chain is FFTs and multiplications, so it's **differentiable**. Define a los
 - **Process window is the real product.** A mask that only works at perfect focus and dose is worthless. SMO optimizes for a wide **focus–exposure window** — robustness across drift. That's what converts to **yield**.
 - **The economics.** An EUV scanner is $200M+; a leading-node mask set costs millions. Compute is cheap by comparison. Spending GPU-hours to extract another node from existing hardware is one of the highest-leverage trades in the industry.
 
-## Images
-
-Published figures are copyrighted. Rather than hotlink them:
-
-- **Ma & Arce (2009)**, Opt. Express — open access, canonical SMO figures
-- **Poonawala & Milanfar (2007)**, IEEE TIP — classic target/mask/print triplets
-- **SPIE Advanced Lithography** proceedings — search "source mask optimization"
-- **ASML / Synopsys / Siemens EDA / KLA** white papers — often reusable with attribution
-- **Best option: generate your own.** A forward litho model produces a genuine with/without-SMO contour comparison — no licensing question, and a stronger demonstration than a borrowed figure.
-
-```
-![Target vs OPC mask vs printed contour](images/opc-mask-comparison.png)
-![Illumination pupil shapes](images/source-shapes.png)
-![Printed contours with and without SMO](images/smo-before-after.png)
-```
 
 ## References
-
-*(DOIs unverified — check against publisher pages before publishing.)*
 
 - **Abbe (1873)**; **Hopkins (1951)** — partially coherent imaging theory
 - **Goodman**, *Introduction to Fourier Optics* — FFT propagation, pupil as low-pass filter
