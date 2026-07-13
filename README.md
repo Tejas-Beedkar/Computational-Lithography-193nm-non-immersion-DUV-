@@ -6,10 +6,10 @@
 
 --------------------------------------------------------------------------------
 
-Tejas Beedkar <br>
-Sushma Shetty <br>
-Nitesh Mahawar <br>
-Juganta Mosrong <br> <br>
+Tejas Beedkar (tejas.beedkar@gmail.com) <br>
+Sushma Shetty (ssushmashetty@gmail.com) <br> 
+Nitesh Mahawar (niteshmahawar2801@gmail.com) <br>
+Juganta Mosrong (bordoloijuganta3@gmail.com) <br> <br>
 
 --------------------------------------------------------------------------------
 
