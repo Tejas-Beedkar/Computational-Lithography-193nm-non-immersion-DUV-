@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Computational Lithography · The Gradient-Descent Loop</title>
+<style>
+  :root{
+    --bg:#0a0e14; --panel:#0e141c; --edge:#1e2733; --edge2:#2a3644;
+    --ink:#e6e6e6; --dim:#5c6773; --dimmer:#3c4757;
+    --violet:#a06bff; --violet-lite:#c9a6ff; --violet-deep:#8a52ff;
+    --blue:#4aa3ff; --cyan:#8be9fd; --green:#50fa7b; --red:#ff5555; --yellow:#f1fa8c; --orange:#ffb86c;
+    --mono:'DM Mono','Courier New',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono)}
+  body{padding:20px 22px 60px;-webkit-font-smoothing:antialiased}
+  h1{font-size:22px;font-weight:700;letter-spacing:2px;margin:0}
+  .sub{color:var(--dim);font-size:12px;letter-spacing:.6px;margin:4px 0 0}
+  .sub b{color:var(--cyan);font-weight:500}
+  .rule{height:1px;background:var(--edge);margin:14px 0 18px}
+
+  .layout{display:grid;grid-template-columns:290px 1fr;gap:20px;align-items:start}
+  @media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+  .controls{display:flex;flex-direction:column;gap:16px}
+  .card{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:14px 15px}
+  .card h2{font-size:11px;letter-spacing:1.4px;margin:0 0 12px;text-transform:uppercase}
+  .c-green h2{color:var(--green)} .c-violet h2{color:var(--violet)} .c-cyan h2{color:var(--cyan)} .c-orange h2{color:var(--orange)}
+  .card .hint{font-size:10px;color:var(--dimmer);line-height:1.5;margin:10px 0 0}
+
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{flex:1;min-width:0;background:#131c27;border:1px solid var(--edge2);color:var(--dim);
+    font-family:var(--mono);font-size:11px;padding:9px 3px;border-radius:5px;cursor:pointer;transition:.15s;line-height:1.3}
+  .seg.green button:hover{border-color:var(--green)}
+  .seg.green button.active{border-color:var(--green);color:var(--green);background:#102a1a}
+  .seg.blue button:hover{border-color:var(--blue)}
+  .seg.blue button.active{border-color:var(--blue);color:var(--blue);background:#0f1f30}
+  .seg button:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+
+  .btnrow{display:flex;gap:8px}
+  .btn{flex:1;font-family:var(--mono);font-size:11.5px;letter-spacing:.5px;padding:11px 6px;border-radius:6px;cursor:pointer;transition:.15s}
+  .btn-run{background:#16212e;border:1px solid var(--cyan);color:var(--cyan)}
+  .btn-run:hover{background:#193042;box-shadow:0 0 14px rgba(139,233,253,.25)}
+  .btn-step{background:#131c27;border:1px solid var(--edge2);color:var(--ink)}
+  .btn-step:hover{border-color:var(--violet);color:var(--violet-lite)}
+  .btn-reset{background:#131c27;border:1px solid var(--edge2);color:var(--dim)}
+  .btn-reset:hover{border-color:var(--red);color:var(--red)}
+  .btn:disabled{opacity:.45;cursor:default;box-shadow:none}
+  .btn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+
+  .lrrow{display:flex;gap:6px;margin-top:4px}
+  .lrrow button{flex:1;background:#131c27;border:1px solid var(--edge2);color:var(--dim);font-family:var(--mono);
+    font-size:11px;padding:8px 3px;border-radius:5px;cursor:pointer;transition:.15s}
+  .lrrow button.active{border-color:var(--orange);color:var(--orange);background:#2a1f10}
+  .lrrow button:hover{border-color:var(--orange)}
+
+  .stage-wrap{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:14px 16px}
+  .panel-title{font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);margin:0 0 10px;display:flex;justify-content:space-between;align-items:baseline}
+  .panel-title b{color:var(--cyan);font-weight:500}
+  .panel-title .tag{font-size:10px;color:var(--dimmer)}
+
+  /* the loop diagram */
+  .loop{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:6px}
+  @media(max-width:640px){.loop{grid-template-columns:1fr}}
+  .imgbox{background:#070a0f;border:1px solid var(--edge);border-radius:6px;padding:10px}
+  .imgbox .lab{font-size:10px;letter-spacing:.8px;text-transform:uppercase;color:var(--dim);margin-bottom:7px;display:flex;justify-content:space-between}
+  .imgbox canvas{display:block;width:100%;border-radius:3px;background:#000;image-rendering:pixelated}
+  .imgbox .lab .who{color:var(--dimmer)}
+
+  .blackbox{margin:12px 0;border:1px dashed var(--edge2);border-radius:6px;padding:10px 12px;background:#0b1017;
+    display:flex;align-items:center;gap:12px;font-size:11px;color:var(--dim)}
+  .blackbox .bb{font-size:10px;letter-spacing:1px;color:var(--violet-lite);border:1px solid var(--violet);border-radius:4px;padding:5px 10px;white-space:nowrap}
+  .blackbox b{color:var(--cyan);font-weight:500}
+  .blackbox a{color:var(--blue)}
+
+  .plots{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px}
+  @media(max-width:640px){.plots{grid-template-columns:1fr}}
+  .plotbox{background:#070a0f;border:1px solid var(--edge);border-radius:6px;padding:10px}
+  .plotbox .lab{font-size:10px;letter-spacing:.8px;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+  canvas.plot{display:block;width:100%;border-radius:3px;background:#070a0f}
+
+  .readout{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+  @media(max-width:620px){.readout{grid-template-columns:1fr}}
+  .metric{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:12px 14px}
+  .metric .k{font-size:10px;letter-spacing:1px;color:var(--dim);text-transform:uppercase}
+  .metric .v{font-size:20px;margin-top:5px;color:var(--ink)}
+  .metric .n{font-size:10.5px;margin-top:4px;color:var(--dimmer);line-height:1.35}
+  .pill{display:inline-block;font-size:10px;padding:2px 7px;border-radius:20px;margin-top:6px}
+  .pill.good{background:rgba(80,250,123,.12);color:var(--green);border:1px solid rgba(80,250,123,.3)}
+  .pill.mid{background:rgba(241,250,140,.12);color:var(--yellow);border:1px solid rgba(241,250,140,.3)}
+  .pill.bad{background:rgba(255,85,85,.12);color:var(--red);border:1px solid rgba(255,85,85,.3)}
+
+  .foot{margin-top:22px;color:var(--dimmer);font-size:11px;line-height:1.6;max-width:960px}
+  .foot b{color:var(--dim);font-weight:500}
+  .foot .eq{color:var(--cyan)}
+  .step-indicator{display:flex;gap:6px;margin-top:10px}
+  .step-indicator .s{flex:1;text-align:center;font-size:9.5px;padding:6px 4px;border:1px solid var(--edge);border-radius:5px;color:var(--dimmer);transition:.2s;line-height:1.3}
+  .step-indicator .s b{display:block;font-size:8.5px;margin-bottom:2px}
+  .step-indicator .s.on{border-color:var(--cyan);color:var(--cyan);background:#10202f}
+
+  /* inputs row: DOE + reticle — the two things the loop tunes */
+  .inputs{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+  .inbox{background:#070a0f;border:1px solid var(--edge);border-radius:6px;padding:10px;transition:.2s}
+  .inbox .lab{font-size:10px;letter-spacing:.8px;text-transform:uppercase;color:var(--dim);margin-bottom:7px;display:flex;justify-content:space-between}
+  .inbox .lab .who{color:var(--dimmer)}
+  .inbox canvas{display:block;width:100%;border-radius:3px;background:#000;image-rendering:pixelated}
+  .inbox .tune{font-size:9px;color:var(--dimmer);margin-top:6px;line-height:1.4}
+
+  /* 2x3 matrix: [DOE|Reticle|Loss] / [Target|Print|Error] */
+  .matrix{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+  @media(max-width:640px){.matrix{grid-template-columns:1fr 1fr}}
+  .cell{background:#070a0f;border:1px solid var(--edge);border-radius:6px;padding:8px 9px;transition:border-color .2s,box-shadow .2s}
+  .cell .lab{font-size:9px;letter-spacing:.6px;text-transform:uppercase;color:var(--dim);margin-bottom:5px;display:flex;justify-content:space-between;gap:4px}
+  .cell .lab .who{color:var(--dimmer);font-size:8px;white-space:nowrap}
+  .cell canvas{display:block;width:100%;border-radius:3px;background:#000;aspect-ratio:1/1}
+
+  /* highlight a box when its data is being used this phase */
+  .imgbox,.inbox,.plotbox,.cell{transition:border-color .2s, box-shadow .2s}
+  .hl-cyan{border-color:var(--cyan)!important;box-shadow:0 0 12px rgba(139,233,253,.25)}
+  .hl-violet{border-color:var(--violet)!important;box-shadow:0 0 12px rgba(160,107,255,.25)}
+  .hl-green{border-color:var(--green)!important;box-shadow:0 0 12px rgba(80,250,123,.22)}
+  .hl-red{border-color:var(--red)!important;box-shadow:0 0 12px rgba(255,85,85,.22)}
+
+  /* phase math strip */
+  .mathstrip{background:#0b1017;border:1px solid var(--edge);border-radius:6px;padding:11px 14px;margin:12px 0;
+    display:flex;align-items:center;gap:14px;min-height:52px}
+  .mathstrip .ph{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--cyan);white-space:nowrap;border-right:1px solid var(--edge2);padding-right:14px}
+  .mathstrip .eq{font-size:14px;color:var(--ink)}
+  .mathstrip .eq .hi-t{color:var(--green)} .mathstrip .eq .hi-p{color:var(--violet-lite)}
+  .mathstrip .eq .hi-e{color:var(--red)} .mathstrip .eq .hi-l{color:var(--cyan)} .mathstrip .eq .hi-g{color:var(--yellow)}
+  .mathstrip .exp{font-size:10.5px;color:var(--dimmer);margin-left:auto;text-align:right;max-width:320px;line-height:1.4}
+</style>
+</head>
+<body>
+  <h1>COMPUTATIONAL LITHOGRAPHY · THE GRADIENT-DESCENT LOOP</h1>
+  <p class="sub">Compare the print to the target → measure the error (<b>MSE loss</b>) → nudge the mask &amp; source <b>downhill</b> → repeat. The optics (mask→wafer) is a black box here.</p>
+  <div class="rule"></div>
+
+  <div class="layout">
+    <!-- ========== CONTROLS ========== -->
+    <div class="controls">
+      <div class="card c-green">
+        <h2>Target pattern</h2>
+        <div class="seg green" id="target-seg">
+          <button data-t="lines" class="active">dense lines</button>
+          <button data-t="contact">contacts</button>
+          <button data-t="elbow">elbow</button>
+        </div>
+        <p class="hint">The shape we want printed. The loop tunes mask + source until the print matches it.</p>
+      </div>
+
+      <div class="card c-cyan">
+        <h2>Run the loop</h2>
+        <div class="btnrow">
+          <button class="btn btn-run" id="run">▶ RUN</button>
+          <button class="btn btn-step" id="step">STEP</button>
+          <button class="btn btn-reset" id="reset">RESET</button>
+        </div>
+        <div class="step-indicator" id="stepind">
+          <div class="s" data-p="0"><b>1 · PRINT</b>optics runs</div>
+          <div class="s" data-p="1"><b>2 · LOSS</b>measure MSE</div>
+          <div class="s" data-p="2"><b>3 · GRAD</b>which way is down</div>
+          <div class="s" data-p="3"><b>4 · STEP</b>nudge mask+source</div>
+        </div>
+      </div>
+
+      <div class="card c-orange">
+        <h2>Learning rate (step size)</h2>
+        <div class="lrrow" id="lr-seg">
+          <button data-lr="small">small<br><span style="font-size:8px;color:var(--dimmer)">slow, safe</span></button>
+          <button data-lr="good" class="active">good<br><span style="font-size:8px;color:var(--dimmer)">balanced</span></button>
+          <button data-lr="big">big<br><span style="font-size:8px;color:var(--dimmer)">may overshoot</span></button>
+        </div>
+        <p class="hint">How far to step downhill each iteration. Too big and the loss bounces; too small and it crawls.</p>
+      </div>
+
+      <div class="card c-cyan">
+        <h2>Diffraction orders captured</h2>
+        <div class="lrrow" id="ord-seg">
+          <button data-ord="2">2<br><span style="font-size:8px;color:var(--dimmer)">blurry</span></button>
+          <button data-ord="3" class="active">3<br><span style="font-size:8px;color:var(--dimmer)">better</span></button>
+          <button data-ord="4">4<br><span style="font-size:8px;color:var(--dimmer)">sharp</span></button>
+        </div>
+        <p class="hint">How many orders the lens (NA) collects. Fewer orders = more diffraction distortion the SMO must fight — rounded corners, pulled-back line ends, ringing.</p>
+      </div>
+
+      <div class="card c-violet">
+        <h2>Loss landscape</h2>
+        <canvas id="cv-bowl" width="260" height="150" style="display:block;width:100%;border-radius:4px;background:#070a0f"></canvas>
+        <p class="hint">The design rolling toward the valley (minimum loss). A picture of the gradient function itself — not a step of the loop.</p>
+      </div>
+    </div>
+
+    <!-- ========== STAGE ========== -->
+    <div>
+      <div class="stage-wrap">
+        <!-- top: target vs current print -->
+        <div class="panel-title"><span>THE LOOP · <b>compare → measure → descend</b></span><span class="tag">iteration <b id="iter-tag" style="color:var(--cyan)">0</b></span></div>
+
+        <!-- 2x3 matrix: [DOE | Reticle | Loss curve] / [Target | Print | Error] -->
+        <div class="matrix">
+          <div class="cell" id="box-doe">
+            <div class="lab"><span>DOE · source</span><span class="who">source step tunes</span></div>
+            <canvas id="cv-doe" width="512" height="512"></canvas>
+          </div>
+          <div class="cell" id="box-reticle">
+            <div class="lab"><span>Reticle · mask</span><span class="who">mask step tunes</span></div>
+            <canvas id="cv-reticle" width="512" height="512"></canvas>
+          </div>
+          <div class="cell" id="box-loss">
+            <div class="lab"><span>Loss vs iter</span><span class="who">MSE ↓</span></div>
+            <canvas id="cv-loss" width="360" height="360"></canvas>
+          </div>
+
+          <div class="cell" id="box-target">
+            <div class="lab"><span>Target</span><span class="who">what we want</span></div>
+            <canvas id="cv-target" width="512" height="512"></canvas>
+          </div>
+          <div class="cell" id="box-print">
+            <div class="lab"><span>Current print</span><span class="who">what we get</span></div>
+            <canvas id="cv-print" width="512" height="512"></canvas>
+          </div>
+          <div class="cell" id="box-error">
+            <div class="lab"><span>Error</span><span class="who">print − target</span></div>
+            <canvas id="cv-error" width="512" height="512"></canvas>
+          </div>
+        </div>
+
+        <!-- phase math strip -->
+        <div class="mathstrip" id="mathstrip">
+          <span class="ph" id="math-ph">READY</span>
+          <span class="eq" id="math-eq">press STEP to walk one iteration</span>
+          <span class="exp" id="math-exp">each iteration touches the highlighted panels above</span>
+        </div>
+
+        <!-- black box note -->
+        <div class="blackbox">
+          <span class="bb">DOE + MASK → ⚫ FFT · NA · IFFT ⚫ → WAFER</span>
+          <span>The optics that turns a <b>mask + source</b> into a print is a <b>black box</b> here — it's the Abbe/FFT engine opened up in the companion demo. This loop only asks: given the print it returns, which way do we nudge the DOE and mask to shrink the error?</span>
+        </div>
+      </div>
+
+      <div class="readout">
+        <div class="metric">
+          <div class="k">Loss (MSE)</div>
+          <div class="v" id="m-loss">—</div>
+          <div class="n" id="m-loss-n">mean of (print − target)² over all pixels.</div>
+        </div>
+        <div class="metric">
+          <div class="k">Edge error</div>
+          <div class="v" id="m-edge">—</div>
+          <div class="n">mismatched pixels after thresholding — the manufacturing-facing number.</div>
+        </div>
+        <div class="metric">
+          <div class="k">Status</div>
+          <div class="v" id="m-status" style="font-size:15px">ready</div>
+          <div id="m-pill" class="pill mid">press RUN or STEP</div>
+        </div>
+      </div>
+
+      <p class="foot">
+        <b>This is the whole CL / SMO loop.</b> Each iteration: (1) the black-box optics <b>prints</b> the current mask under the current
+        source; (2) we score it against the target with a <b>differentiable loss</b>, the mean-squared error
+        <span class="eq">L = mean( (print − target)² )</span> over every pixel; (3) we ask the gradient <span class="eq">∂L/∂(mask, source)</span>
+        <b>which direction lowers L</b>; (4) we take a small step that way — the mask step nudges pixel transmissions (this is OPC / ILT),
+        the source step reshapes the DOE weights. Repeat, and the loss <b>descends</b>. The <b>bowl</b> on the right is the same story
+        geometrically: the design sits on a loss landscape and rolls toward the valley; the <b>learning rate</b> is how big each roll is —
+        too big and it bounces off the walls, too small and it crawls. Small non-monotonic wiggles are normal (fixed step size, no line
+        search). A soft <b>sigmoid</b> resist makes the print differentiable so a gradient even exists; the sharp <b>edge-error</b> metric is
+        just reported alongside. That's the engine driving the SMO Studio — the optics is exactly the FFT loop from the double-slit demo,
+        here treated as a black box. Physics and landscape are exaggerated for intuition, not drawn to scale.
+      </p>
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+  const $=id=>document.getElementById(id);
+  const G=48;                    // compute grid (rendered up to 512px)
+  const LR={small:0.10, good:0.30, big:0.72};
+
+  const state={target:"lines", lr:"good", orders:3, iter:0, running:false, phase:-1};
+  // design variables (toy): a scalar "mask sharpness" m and "source spread" s,
+  // plus a per-pixel bias field. The toy loss is convex-ish in (m,s) with a min.
+  let design=null, lossHist=[], path=[];
+
+  // ---------- target patterns (GxG binary), scaled to fill the grid ----------
+  function makeTarget(name){
+    const t=new Float32Array(G*G);
+    const set=(x,y,v)=>{ if(x>=0&&x<G&&y>=0&&y<G) t[y*G+x]=v; };
+    const rect=(x0,y0,w,h)=>{for(let y=y0;y<y0+h;y++)for(let x=x0;x<x0+w;x++)set(x,y,1);};
+    if(name==="lines"){
+      // 4 vertical lines: line width and pitch scale with G
+      const lw=Math.round(G*0.09), pitch=Math.round(G*0.22), m=Math.round(G*0.12);
+      for(let k=0;k<4;k++) rect(m+k*pitch, Math.round(G*0.15), lw, Math.round(G*0.70));
+    } else if(name==="contact"){
+      // 3x3 array of square contacts
+      const sz=Math.round(G*0.11), gap=Math.round(G*0.28), m=Math.round(G*0.16);
+      for(let gy=0;gy<3;gy++)for(let gx=0;gx<3;gx++) rect(m+gx*gap, m+gy*gap, sz, sz);
+    } else { // elbow (L-shape)
+      const w=Math.round(G*0.11);
+      rect(Math.round(G*0.30), Math.round(G*0.18), w, Math.round(G*0.55));      // vertical arm
+      rect(Math.round(G*0.30), Math.round(G*0.62), Math.round(G*0.45), w);      // horizontal arm
+    }
+    return t;
+  }
+
+  // ---------- the BLACK BOX optics: mask+source -> print ----------
+  // Toy imaging: the print is the target blurred by a kernel whose sharpness is
+  // controlled by design.m (mask/OPC quality) and design.s (source quality),
+  // plus a small per-pixel correction field design.bias. This stands in for the
+  // real FFT->NA->IFFT engine. We only need SOMETHING differentiable with a min.
+  function optics(target, d){
+    // Exaggerated optical distortion to ensure fringes and heavy blur are clearly visible
+    const orderFloor = {2:2.2, 3:1.3, 4:0.6}[state.orders] || 1.3;  
+    const orderRing  = {2:0.6, 3:0.35, 4:0.1}[state.orders] || 0.35;
+    
+    const rad = Math.max(0.35, orderFloor*(1 - 0.55*d.m - 0.55*d.s));
+    const print=new Float32Array(G*G);
+    // pass 1: order-limited blur of (mask = target + OPC bias)
+    const masked=new Float32Array(G*G);
+    for(let i=0;i<G*G;i++) masked[i]=Math.max(0,Math.min(1.4, target[i] + d.bias[i]*1.4));
+    for(let y=0;y<G;y++)for(let x=0;x<G;x++){
+      let acc=0,wsum=0; const R=Math.ceil(rad)+1;
+      for(let dy=-R;dy<=R;dy++)for(let dx=-R;dx<=R;dx++){
+        const xx=x+dx, yy=y+dy; if(xx<0||xx>=G||yy<0||yy>=G)continue;
+        const w=Math.exp(-(dx*dx+dy*dy)/(2*Math.max(0.15,rad*rad)));
+        acc+=w*masked[yy*G+xx]; wsum+=w;
+      }
+      print[y*G+x]=acc/wsum;      // store blurred value; ringing added in pass 2
+    }
+    // pass 2: add edge ringing + sigmoid resist
+    const blurred=print.slice();
+    for(let y=0;y<G;y++)for(let x=0;x<G;x++){
+      const i=y*G+x;
+      // local Laplacian (edge detector) -> ringing lobes
+      let lap=0,cnt=0;
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const xx=x+dx,yy=y+dy; if(xx<0||xx>=G||yy<0||yy>=G)continue;
+        lap+=blurred[yy*G+xx]; cnt++;
+      }
+      lap = (cnt? lap/cnt : blurred[i]) - blurred[i];
+      // Boosted ringing heavily for visual distortion fringes
+      let v = blurred[i] + orderRing*lap*3.5;   
+      // Soft resist to clearly expose diffraction fringes instead of clipping them
+      print[i]=1/(1+Math.exp(-4.5*(v-0.5)));       
+    }
+    return print;
+  }
+
+  function mse(print,target){let s=0;for(let i=0;i<print.length;i++){const d=print[i]-target[i];s+=d*d;}return s/print.length;}
+  function edgePx(print,target){let c=0;for(let i=0;i<print.length;i++){if((print[i]>=0.5?1:0)!==target[i])c++;}return c;}
+
+  // ---------- one gradient-descent step ----------
+  function gradStep(target,d,lr){
+    const base=optics(target,d), L0=mse(base,target);
+    const eps=1e-2;
+    // gradient wrt scalar m and s (finite diff)
+    const dm={...d,m:Math.min(1,d.m+eps)}; const gm=(mse(optics(target,dm),target)-L0)/eps;
+    const ds={...d,s:Math.min(1,d.s+eps)}; const gs=(mse(optics(target,ds),target)-L0)/eps;
+    // gradient wrt bias field: dL/dbias ~ 2*(print-target)*sigmoid' ; approximate by (print-target)
+    const gb=new Float32Array(G*G);
+    for(let i=0;i<gb.length;i++) gb[i]=2*(base[i]-target[i]);
+    // normalized-gradient descent (as in the studio: theta -= lr*g/||g||inf)
+    const gmax=Math.max(Math.abs(gm),Math.abs(gs),1e-9);
+    const nd={m:d.m,s:d.s,bias:new Float32Array(d.bias)};
+    // Gradient logic UNTOUCHED exactly as original source code to prevent oscillation
+    nd.m=Math.max(0,Math.min(1, d.m - lr*0.5*(gm/gmax)));
+    nd.s=Math.max(0,Math.min(1, d.s - lr*0.5*(gs/gmax)));
+    const gbmax=Math.max(...Array.from(gb,Math.abs),1e-9);
+    // OPC bias: HUGE range + strong step so the mask grows dramatic assist features.
+    // Also smear the bias outward a little so assist bars appear beside the features.
+    const gbmax2=gbmax;
+    // Gradient logic UNTOUCHED exactly as original source code to prevent oscillation
+    for(let i=0;i<gb.length;i++) nd.bias[i]=Math.max(-0.9,Math.min(0.9, d.bias[i]-lr*0.75*(gb[i]/gbmax2)));
+    // lateral smear: push a fraction of each edge's bias into its neighbours (assist halo)
+    const sm=new Float32Array(nd.bias);
+    for(let y=0;y<G;y++)for(let x=0;x<G;x++){
+      const i=y*G+x; let acc=nd.bias[i]*0.6, w=0.6;
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]]){
+        const xx=x+dx,yy=y+dy; if(xx<0||xx>=G||yy<0||yy>=G)continue;
+        acc+=nd.bias[yy*G+xx]*0.16; w+=0.16;
+      }
+      sm[i]=acc/w;
+    }
+    nd.bias=sm;
+    return {nd, L0, gm, gs};
+  }
+
+  // ---------- drawing ----------
+  function drawField(cvId, arr, mode){
+    const cv=$(cvId), ctx=cv.getContext("2d");
+    const img=ctx.createImageData(G,G);
+    for(let i=0;i<G*G;i++){
+      let r,g,b; const v=arr[i];
+      if(mode==="err"){ // Force all error highlights into intense red mapping
+        const mag = Math.min(1, Math.abs(v) * 4.0);
+        r = Math.round(20 + 235 * mag);
+        g = Math.round(15 * (1 - mag));
+        b = Math.round(20 * (1 - mag));
+      } else { // violet grayscale
+        r=Math.round(178*v); g=Math.round(100*v); b=Math.round(255*v);
+      }
+      img.data[i*4]=r;img.data[i*4+1]=g;img.data[i*4+2]=b;img.data[i*4+3]=255;
+    }
+    // scale up smoothly (continuous fields look better interpolated at 512px)
+    const tmp=document.createElement("canvas");tmp.width=G;tmp.height=G;
+    tmp.getContext("2d").putImageData(img,0,0);
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality="high";
+    ctx.clearRect(0,0,cv.width,cv.height);
+    ctx.drawImage(tmp,0,0,cv.width,cv.height);
+  }
+
+  function drawLoss(){
+    const cv=$("cv-loss"),ctx=cv.getContext("2d"),W=cv.width,H=cv.height;
+    ctx.clearRect(0,0,W,H);ctx.fillStyle="#070a0f";ctx.fillRect(0,0,W,H);
+    const x0=14,x1=W-8,y0=10,y1=H-14;
+    ctx.strokeStyle="#1e2733";ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x0,y1);ctx.lineTo(x1,y1);ctx.stroke();
+    if(lossHist.length===0){ctx.fillStyle="#3c4757";ctx.textAlign="center";ctx.font="9px 'DM Mono',monospace";ctx.fillText("run the loop",(x0+x1)/2,(y0+y1)/2);return;}
+    const maxL=Math.max(...lossHist), minL=0;
+    const n=lossHist.length, span=Math.max(1,n-1);
+    const px=i=>x0+(x1-x0)*(n===1?0.02:i/span);
+    const py=v=>y1-(y1-y0)*(v-minL)/((maxL-minL)||1);
+    ctx.beginPath();ctx.moveTo(px(0),py(lossHist[0]));
+    lossHist.forEach((v,i)=>ctx.lineTo(px(i),py(v)));
+    ctx.lineTo(px(n-1),y1);ctx.lineTo(px(0),y1);ctx.closePath();
+    ctx.fillStyle="rgba(139,233,253,.09)";ctx.fill();
+    ctx.strokeStyle="#8be9fd";ctx.lineWidth=2;ctx.beginPath();
+    lossHist.forEach((v,i)=>{const X=px(i),Y=py(v);i?ctx.lineTo(X,Y):ctx.moveTo(X,Y);});
+    ctx.stroke();
+    lossHist.forEach((v,i)=>{ctx.fillStyle=i===n-1?"#f1fa8c":"#8be9fd";ctx.beginPath();ctx.arc(px(i),py(v),i===n-1?4:2,0,7);ctx.fill();});
+  }
+
+  function drawBowl(){
+    const cv=$("cv-bowl"),ctx=cv.getContext("2d"),W=cv.width,H=cv.height;
+    ctx.clearRect(0,0,W,H);ctx.fillStyle="#070a0f";ctx.fillRect(0,0,W,H);
+    const cx=W/2, floorY=H-30, top=24;
+    // a parabola bowl
+    const bowl=x=>{const t=(x-cx)/(W*0.42);return top+(floorY-top)*(1-t*t*0); }; // placeholder
+    // draw parabola
+    ctx.strokeStyle="#2a3644";ctx.lineWidth=2;ctx.beginPath();
+    const A=(floorY-top)/Math.pow(W*0.44,2);
+    for(let x=10;x<=W-10;x++){const y=floorY-A*Math.pow(x-cx,2);if(x===10)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
+    ctx.stroke();
+    // valley marker
+    ctx.strokeStyle="#1e2733";ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(cx,top);ctx.lineTo(cx,floorY);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle="#50fa7b";ctx.font="9px 'DM Mono',monospace";ctx.textAlign="center";ctx.fillText("minimum (best design)",cx,floorY+16);
+    // ball position from loss (map current loss to horizontal offset)
+    if(lossHist.length){
+      const L=lossHist[lossHist.length-1], L0=lossHist[0]||1;
+      const frac=Math.min(1,Math.sqrt(Math.max(0,L)/ (L0||1)));   // 1 at start -> 0 at min
+      const side=(path.length%2===0)?1:-1;                        // alternate sides for realism
+      const bx=cx+side*frac*(W*0.40);
+      const by=floorY-A*Math.pow(bx-cx,2);
+      // trail
+      path.forEach((p,i)=>{ctx.fillStyle="rgba(160,107,255,"+(0.15+0.5*i/path.length)+")";ctx.beginPath();ctx.arc(p.x,p.y,2.2,0,7);ctx.fill();});
+      // ball
+      ctx.fillStyle="#a06bff";ctx.shadowColor="#a06bff";ctx.shadowBlur=12;
+      ctx.beginPath();ctx.arc(bx,by,7,0,7);ctx.fill();ctx.shadowBlur=0;
+      ctx.strokeStyle="#c9a6ff";ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(bx,by,7,0,7);ctx.stroke();
+      path.push({x:bx,y:by}); if(path.length>10)path.shift();
+    } else {
+      ctx.fillStyle="#a06bff";ctx.shadowColor="#a06bff";ctx.shadowBlur=12;
+      ctx.beginPath();ctx.arc(cx+W*0.40,floorY-A*Math.pow(W*0.40,2),7,0,7);ctx.fill();ctx.shadowBlur=0;
+    }
+    ctx.fillStyle="#5c6773";ctx.font="9px 'DM Mono',monospace";ctx.textAlign="left";
+    ctx.fillText("design →",14,H-8);
+  }
+
+  // ---------- state / metrics ----------
+  function reset(){
+    state.iter=0;state.phase=-1;lossHist=[];path=[];
+    design={m:0.15,s:0.15,bias:new Float32Array(G*G)};
+    const tgt=makeTarget(state.target);
+    const print=optics(tgt,design);
+    drawField("cv-target",tgt);drawField("cv-print",print);
+    drawErr(tgt,print);
+    drawDOE(design);drawReticle(tgt,design);
+    drawLoss();drawBowl();
+    $("iter-tag").textContent="0";
+    $("m-loss").textContent=mse(print,tgt).toFixed(4);
+    $("m-edge").textContent=edgePx(print,tgt);
+    $("m-status").textContent="ready";$("m-pill").className="pill mid";$("m-pill").textContent="press RUN or STEP";
+    setPhase(-1);
+  }
+  function drawErr(tgt,print){
+    const err=new Float32Array(G*G);for(let i=0;i<err.length;i++)err[i]=print[i]-tgt[i];
+    drawField("cv-error",err,"err");
+  }
+
+  // ---- DOE (source pupil) : a small circular grid whose weights evolve ----
+  function drawDOE(d){
+    const cv=$("cv-doe"),ctx=cv.getContext("2d"),W=cv.width,H=cv.height;
+    ctx.clearRect(0,0,W,H);ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
+    const cx=W/2,cy=H/2,R=W*0.42; // R is the NA circle bounds
+    ctx.strokeStyle="#2a3644";ctx.lineWidth=2;ctx.beginPath();ctx.arc(cx,cy,R,0,7);ctx.stroke();
+    // SINGLE HEXAPOLE, DRAMATIC: poles start as clear medium dots and violently
+    // reshape as the source tunes (d.s) — some balloon huge, others shrink to nubs,
+    // and the ring marches outward. Impossible to miss.
+    const NPOLE=6, ang0=-Math.PI/2;
+    // Restricts the max ring radius so pupils never push past the NA circle (0.8 max stretch)
+    const ringR=R*(0.3+0.5*d.s);                       
+    for(let i=0;i<NPOLE;i++){
+      const ang=ang0+(i/NPOLE)*2*Math.PI;
+      const px=cx+Math.cos(ang)*ringR, py=cy+Math.sin(ang)*ringR;
+      const favor=Math.abs(Math.cos(1.5*ang));           // which poles win
+      
+      // Mapped to start effectively as tight pinpoints when d.s is at seed value
+      const w = d.s*(0.5 + 2.0*favor);
+      // Limits max blob radius so (ringR + rad) <= R. 0.8R + 0.18R = 0.98R (Stays inside NA perfectly)
+      const rad = R*(0.02 + 0.16*Math.min(1.2, w));        
+      const alpha=0.35+0.65*Math.min(1,w);
+      
+      // glow halo
+      ctx.shadowColor="#a06bff";ctx.shadowBlur=W*0.05*Math.min(1,w);
+      ctx.fillStyle=`rgba(160,107,255,${alpha})`;
+      ctx.beginPath();ctx.arc(px,py,rad,0,7);ctx.fill();
+      ctx.shadowBlur=0;
+      // bright core
+      ctx.fillStyle=`rgba(201,166,255,${0.5+0.5*Math.min(1,w)})`;
+      ctx.beginPath();ctx.arc(px,py,rad*0.45,0,7);ctx.fill();
+    }
+    ctx.fillStyle="#7c8797";ctx.font="11px 'DM Mono',monospace";ctx.textAlign="center";
+    ctx.fillText(d.s<0.35?"hexapole · seed":"hexapole · tuned",cx,H-8);
+  }
+
+  // ---- reticle (mask) : target geometry + MASSIVELY EXAGGERATED OPC, SHARP edges ----
+  function drawReticle(tgt,d){
+    const cv=$("cv-reticle"),ctx=cv.getContext("2d");
+    const img=ctx.createImageData(G,G);
+    for(let i=0;i<G*G;i++){
+      const base=tgt[i];
+      const bias=d.bias[i];
+      let r,g,bl;
+      if(base>0.5){
+        // inside mask: bright green body. Positive OPC → vivid cyan reinforcement,
+        // negative OPC → strong dark pullback. Massively cranked visually without breaking math loop.
+        const boost=Math.max(0,bias)*15.0, cut=Math.max(0,-bias)*15.0;
+        g=Math.round((200-150*Math.min(1,cut))+55*Math.min(1,boost));
+        r=Math.round(20+90*Math.min(1,boost));
+        bl=Math.round(30+220*Math.min(1,boost));
+      } else {
+        // outside mask: OPC ASSIST FEATURES in blazing cyan wherever bias>0.
+        // Very low threshold + full intensity so serifs/scatter bars SCREAM.
+        const assist=Math.max(0,bias)*25.0;
+        if(assist>0.03){
+          r=Math.round(30+70*Math.min(1,assist));
+          g=Math.round(160+95*Math.min(1,assist));
+          bl=Math.round(210+45*Math.min(1,assist));   // blazing cyan
+        } else { r=5;g=9;bl=15; }                      // near-black field
+      }
+      img.data[i*4]=r;img.data[i*4+1]=g;img.data[i*4+2]=bl;img.data[i*4+3]=255;
+    }
+    const tmp=document.createElement("canvas");tmp.width=G;tmp.height=G;
+    tmp.getContext("2d").putImageData(img,0,0);
+    ctx.imageSmoothingEnabled=false;      // SHARP — no blurring on the reticle, absolutely crisp
+    ctx.clearRect(0,0,cv.width,cv.height);
+    ctx.drawImage(tmp,0,0,cv.width,cv.height);
+  }
+
+  // ---- phase driver: math strip + which panels are "in play" ----
+  const HL=["box-target","box-print","box-error","box-doe","box-reticle","box-loss"];
+  function clearHL(){HL.forEach(id=>{const e=$(id);if(e)e.classList.remove("hl-cyan","hl-violet","hl-green","hl-red");});}
+  function setPhase(p){
+    state.phase=p;
+    document.querySelectorAll("#stepind .s").forEach(s=>s.classList.toggle("on",+s.dataset.p===p));
+    clearHL();
+    const ph=$("math-ph"),eq=$("math-eq"),exp=$("math-exp");
+    if(p===-1){
+      ph.textContent="READY"; eq.innerHTML="press STEP to walk one iteration";
+      exp.textContent="each iteration touches the highlighted panels above"; return;
+    }
+    if(p===0){ // PRINT: optics runs on DOE + mask
+      ph.textContent="1 · PRINT";
+      eq.innerHTML='print = <span class="hi-l">optics</span>( <span class="hi-g">DOE</span>, <span class="hi-p">mask</span> )';
+      exp.innerHTML="the black-box FFT engine images the current source + mask";
+      $("box-doe").classList.add("hl-green"); $("box-reticle").classList.add("hl-violet");
+      $("box-print").classList.add("hl-cyan");
+    } else if(p===1){ // LOSS: error = target - print, MSE
+      ph.textContent="2 · MEASURE";
+      eq.innerHTML='error = <span class="hi-t">target</span> − <span class="hi-p">print</span> &nbsp;→&nbsp; L = mean( <span class="hi-e">error</span>² )';
+      exp.innerHTML="mean-squared error over every pixel = the loss";
+      $("box-target").classList.add("hl-green"); $("box-print").classList.add("hl-violet");
+      $("box-error").classList.add("hl-red");
+    } else if(p===2){ // GRAD
+      ph.textContent="3 · GRADIENT";
+      eq.innerHTML='<span class="hi-g">g</span> = ∂L/∂(<span class="hi-g">DOE</span>, <span class="hi-p">mask</span>)';
+      exp.innerHTML="which way to change source &amp; mask to lower L (adjoint of the optics)";
+      $("box-error").classList.add("hl-red");
+      $("box-doe").classList.add("hl-green"); $("box-reticle").classList.add("hl-violet");
+    } else if(p===3){ // STEP
+      ph.textContent="4 · STEP";
+      eq.innerHTML='θ ← θ − <span class="hi-l">η</span>·<span class="hi-g">g</span>/‖<span class="hi-g">g</span>‖ &nbsp; <span style="color:var(--dimmer)">(normalized descent)</span>';
+      exp.innerHTML="take a small step downhill · η = learning rate";
+      $("box-doe").classList.add("hl-green"); $("box-reticle").classList.add("hl-violet");
+    }
+  }
+
+  function doStep(){
+    const tgt=makeTarget(state.target);
+    // phase animation: 0 print, 1 loss, 2 grad, 3 step
+    const r=gradStep(tgt,design,LR[state.lr]);
+    // apply
+    design=r.nd; state.iter++;
+    const print=optics(tgt,design);
+    let L=mse(print,tgt);
+    // big learning rate -> visible overshoot bounce (as in real fixed-step descent)
+    if(state.lr==="big" && state.iter>1){
+      const wig=0.010*Math.sin(state.iter*1.7)*Math.max(0,1-state.iter/25);
+      L=Math.max(0,L+Math.abs(wig)); // bounce shows as non-monotonic bumps
+    }
+    lossHist.push(L);
+    // redraw
+    drawField("cv-target",tgt);drawField("cv-print",print);drawErr(tgt,print);
+    drawDOE(design);drawReticle(tgt,design);
+    drawLoss();drawBowl();
+    $("iter-tag").textContent=state.iter;
+    $("m-loss").textContent=L.toFixed(4);
+    $("m-edge").textContent=edgePx(print,tgt);
+    // status
+    const st=$("m-status"),pill=$("m-pill");
+    const conv = lossHist.length>6 && Math.abs(lossHist[lossHist.length-1]-lossHist[lossHist.length-2])<2e-5;
+    if(conv){st.textContent="converged";pill.className="pill good";pill.textContent="loss flattened — done";}
+    else{st.textContent="descending";pill.className="pill mid";pill.textContent="loss dropping";}
+    return conv;
+  }
+
+  // animated single step showing the 4 phases
+  function animatedStep(after){
+    let p=0; setPhase(0);
+    const iv=setInterval(()=>{
+      p++;
+      if(p>3){clearInterval(iv);const conv=doStep();
+        // leave phase 3 (STEP) highlighted a beat so the math/highlights read
+        setPhase(3);
+        setTimeout(()=>{ if(!state.running) setPhase(-1); after&&after(conv); },
+                   state.running?60:520);
+        return;}
+      setPhase(p);
+    },260);
+  }
+
+  function run(){
+    if(state.running){return;}
+    state.running=true;$("run").disabled=true;$("step").disabled=true;
+    $("m-status").textContent="running…";
+    const tick=()=>{
+      animatedStep((conv)=>{
+        if(conv || state.iter>=40 || !state.running){
+          state.running=false;$("run").disabled=false;$("step").disabled=false;return;
+        }
+        setTimeout(tick,120);
+      });
+    };
+    tick();
+  }
+
+  // ---------- wire ----------
+  document.querySelectorAll("#target-seg button").forEach(b=>b.addEventListener("click",()=>{
+    document.querySelectorAll("#target-seg button").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");state.target=b.dataset.t;reset();
+  }));
+  document.querySelectorAll("#lr-seg button").forEach(b=>b.addEventListener("click",()=>{
+    document.querySelectorAll("#lr-seg button").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");state.lr=b.dataset.lr;
+  }));
+  document.querySelectorAll("#ord-seg button").forEach(b=>b.addEventListener("click",()=>{
+    document.querySelectorAll("#ord-seg button").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");state.orders=+b.dataset.ord;reset();
+  }));
+  $("step").addEventListener("click",()=>{ if(!state.running) animatedStep(()=>{}); });
+  $("run").addEventListener("click",run);
+  $("reset").addEventListener("click",()=>{state.running=false;reset();});
+
+  reset();
+})();
+</script>
+</body>
+</html>
