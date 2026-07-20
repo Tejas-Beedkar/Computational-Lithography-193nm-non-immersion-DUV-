@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Abbe Imaging · Building the Image from Frequencies</title>
+<style>
+  :root{
+    --bg:#0a0e14; --panel:#0e141c; --edge:#1e2733; --edge2:#2a3644;
+    --ink:#e6e6e6; --dim:#5c6773; --dimmer:#3c4757;
+    --violet:#a06bff; --violet-lite:#c9a6ff; --violet-deep:#8a52ff;
+    --blue:#4aa3ff; --cyan:#8be9fd; --green:#50fa7b; --red:#ff5555; --yellow:#f1fa8c;
+    --mono:'DM Mono','Courier New',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono)}
+  body{padding:20px 22px 60px;-webkit-font-smoothing:antialiased}
+  h1{font-size:22px;font-weight:700;letter-spacing:2px;margin:0}
+  .sub{color:var(--dim);font-size:12px;letter-spacing:.6px;margin:4px 0 0}
+  .sub b{color:var(--cyan);font-weight:500}
+  .rule{height:1px;background:var(--edge);margin:14px 0 18px}
+
+  .layout{display:grid;grid-template-columns:290px 1fr;gap:20px;align-items:start}
+  @media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+  .controls{display:flex;flex-direction:column;gap:16px}
+  .card{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:14px 15px}
+  .card h2{font-size:11px;letter-spacing:1.4px;margin:0 0 12px;text-transform:uppercase}
+  .c-green h2{color:var(--green)} .c-violet h2{color:var(--violet)} .c-cyan h2{color:var(--cyan)}
+  .card .hint{font-size:10px;color:var(--dimmer);line-height:1.5;margin:10px 0 0}
+
+  .seg{display:flex;gap:6px}
+  .seg button{flex:1;background:#131c27;border:1px solid var(--edge2);color:var(--dim);
+    font-family:var(--mono);font-size:12px;padding:10px 2px;border-radius:5px;cursor:pointer;transition:.15s;line-height:1.3}
+  .seg button span{display:block;font-size:8.5px;color:var(--dimmer);margin-top:2px}
+  .seg.green button:hover{border-color:var(--green)}
+  .seg.green button.active{border-color:var(--green);color:var(--green);background:#102a1a}
+  .seg.green button.active span{color:var(--green);opacity:.75}
+  .seg.violet button:hover{border-color:var(--violet)}
+  .seg.violet button.active{border-color:var(--violet);color:var(--violet-lite);background:#1a1030}
+  .seg.violet button.active span{color:var(--violet-lite);opacity:.75}
+  .seg button:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+
+  .playbtn{width:100%;background:#16212e;border:1px solid var(--cyan);color:var(--cyan);
+    font-family:var(--mono);font-size:12px;letter-spacing:1px;padding:11px;border-radius:6px;cursor:pointer;transition:.15s}
+  .playbtn:hover{background:#193042;box-shadow:0 0 14px rgba(139,233,253,.25)}
+  .playbtn:disabled{opacity:.5;cursor:default;box-shadow:none}
+  .playbtn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+
+  .stage-wrap{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:14px 16px}
+  .panel-title{font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);margin:0 0 8px;display:flex;justify-content:space-between;align-items:baseline}
+  .panel-title .tag{font-size:10px;color:var(--dimmer)}
+  .panel-title b{color:var(--cyan);font-weight:500}
+  .mini-toggle{font-family:var(--mono);font-size:9.5px;letter-spacing:.3px;padding:4px 8px;margin-left:6px;
+    border-radius:4px;cursor:pointer;background:#0e141c;border:1px solid var(--edge2);color:var(--dim);transition:.15s}
+  .mini-toggle.active{border-color:var(--green);color:var(--green);background:#102a1a}
+  .mini-toggle.off.active{border-color:var(--red);color:var(--red);background:#2a1010}
+  .mini-toggle:hover{border-color:var(--dim)}
+  .mini-toggle:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  canvas{display:block;width:100%;border-radius:4px;background:#070a0f}
+  .block{margin-bottom:18px}
+  .block:last-child{margin-bottom:0}
+  .divider{height:1px;background:var(--edge);margin:16px 0}
+
+  .arrowrow{display:flex;align-items:center;justify-content:center;gap:10px;color:var(--dimmer);font-size:11px;margin:2px 0 14px}
+  .arrowrow .big{color:var(--cyan);font-size:15px}
+
+  .readout{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+  @media(max-width:620px){.readout{grid-template-columns:1fr}}
+  .metric{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:12px 14px}
+  .metric .k{font-size:10px;letter-spacing:1px;color:var(--dim);text-transform:uppercase}
+  .metric .v{font-size:18px;margin-top:5px;color:var(--ink)}
+  .metric .n{font-size:10.5px;margin-top:4px;color:var(--dimmer);line-height:1.35}
+  .pill{display:inline-block;font-size:10px;padding:2px 7px;border-radius:20px;margin-top:6px}
+  .pill.good{background:rgba(80,250,123,.12);color:var(--green);border:1px solid rgba(80,250,123,.3)}
+  .pill.mid{background:rgba(241,250,140,.12);color:var(--yellow);border:1px solid rgba(241,250,140,.3)}
+  .pill.bad{background:rgba(255,85,85,.12);color:var(--red);border:1px solid rgba(255,85,85,.3)}
+
+  .foot{margin-top:22px;color:var(--dimmer);font-size:11px;line-height:1.6;max-width:940px}
+  .foot b{color:var(--dim);font-weight:500}
+  .foot .eq{color:var(--cyan)}
+</style>
+</head>
+<body>
+  <h1>ABBE IMAGING · BUILDING THE IMAGE FROM FREQUENCIES</h1>
+  <p class="sub">Each diffraction order is one <b>spatial frequency</b>. Add them up (<b>FFT synthesis</b>) → the interference pattern appears. Invert it (<b>IFFT</b>) → the wafer image.</p>
+  <div class="rule"></div>
+
+  <div class="layout">
+    <!-- ============ CONTROLS ============ -->
+    <div class="controls">
+      <div class="card c-green">
+        <h2>Reticle · how many slits</h2>
+        <div class="seg green" id="slit-seg">
+          <button data-n="2" class="active">2<span>double</span></button>
+          <button data-n="3">3<span>triple</span></button>
+          <button data-n="4">4<span>quad</span></button>
+        </div>
+        <p class="hint">More slits → a higher fundamental frequency → finer fringes in the pattern.</p>
+      </div>
+
+      <div class="card c-violet">
+        <h2>Lens · orders kept (NA)</h2>
+        <div class="seg violet" id="order-seg">
+          <button data-k="0">0<span>DC only</span></button>
+          <button data-k="1">0,±1<span>+1st</span></button>
+          <button data-k="2" class="active">0,±1,±2<span>+2nd</span></button>
+        </div>
+        <p class="hint">Each order you keep adds one sine wave to the sum. The 0 order alone is just flat brightness — no pattern.</p>
+      </div>
+
+      <div class="card c-cyan">
+        <h2>Animate</h2>
+        <button class="playbtn" id="play">▶  ADD  ORDERS  ONE  BY  ONE</button>
+        <p class="hint">Watch the spectrum grow spike by spike, each adding its sine wave, until the interference pattern is complete.</p>
+      </div>
+    </div>
+
+    <!-- ============ STAGE ============ -->
+    <div>
+      <div class="stage-wrap">
+
+        <!-- 0 · the mask goes into ONE fft -->
+        <div class="block">
+          <div class="panel-title"><span>0 · THE WHOLE MASK → <b>ONE FFT</b></span>
+            <span class="tag">
+              <button class="mini-toggle" id="tg-correct">✓ one FFT of the whole mask</button>
+              <button class="mini-toggle off" id="tg-wrong">✗ one FFT per slit?</button>
+            </span>
+          </div>
+          <canvas id="maskfft" width="900" height="150"></canvas>
+          <p class="hint" id="maskfft-note" style="margin-top:8px">
+            The transform takes the <b style="color:#50fa7b">entire mask field at once</b> — all slits together as a single input —
+            and produces <b style="color:#8be9fd">one spectrum</b>. There is no per-slit FFT.
+          </p>
+        </div>
+
+        <!-- 1 · pupil spectrum -->
+        <div class="block">
+          <div class="panel-title"><span>1 · PUPIL SPECTRUM &nbsp;<b>(FFT of the mask)</b></span><span class="tag">frequency domain · height = order weight</span></div>
+          <canvas id="spectrum" width="900" height="150"></canvas>
+        </div>
+
+        <!-- 2 · component sine waves -->
+        <div class="block">
+          <div class="panel-title"><span>2 · EACH ORDER = ONE SINE WAVE</span><span class="tag">the building blocks</span></div>
+          <canvas id="waves" width="900" height="200"></canvas>
+        </div>
+
+        <!-- 3 · sum = interference pattern -->
+        <div class="block">
+          <div class="panel-title"><span>3 · ADD THEM UP → <b>DIFFRACTION / INTERFERENCE PATTERN</b></span><span class="tag">spatial domain · the aerial image</span></div>
+          <canvas id="sum" width="900" height="150"></canvas>
+        </div>
+
+        <div class="divider"></div>
+        <div class="arrowrow"><span>the captured spectrum</span><span class="big">→ IFFT →</span><span>the pattern printed on the wafer</span></div>
+
+        <!-- 4 · wafer -->
+        <div class="block">
+          <div class="panel-title"><span>4 · WAFER IMAGE &nbsp;<b>(IFFT → intensity)</b></span><span class="tag">what the resist sees</span></div>
+          <canvas id="wafer" width="900" height="90"></canvas>
+        </div>
+
+      </div>
+
+      <div class="readout">
+        <div class="metric">
+          <div class="k">Spectrum</div>
+          <div class="v" id="m-spec">0, ±1, ±2</div>
+          <div class="n" id="m-spec-n">3 spikes kept — 5 sine waves summed (0, ±1, ±2).</div>
+        </div>
+        <div class="metric">
+          <div class="k">Pattern quality</div>
+          <div class="v" id="m-quality">Sharp fringes</div>
+          <div id="m-pill" class="pill good">pattern resolved</div>
+        </div>
+        <div class="metric">
+          <div class="k">Abbe's rule</div>
+          <div class="v" id="m-abbe" style="font-size:13px;line-height:1.4">more orders = more detail</div>
+          <div class="n">The lens is a low-pass filter: it can only keep orders inside the NA.</div>
+        </div>
+      </div>
+
+      <p class="foot">
+        <b>Abbe's principle, made literal.</b> A mask of slits is not stored as "slits" by the optics — the forward transform
+        <span class="eq">to_pupil = FFT</span> rewrites it as a set of <b>spatial-frequency components</b>, the diffraction orders,
+        shown as spikes in <b>panel 1</b>. Each spike <b>is</b> one sine wave (<b>panel 2</b>): the <b>0 order</b> is the flat DC
+        term (average brightness), the <b>±1</b> pair is the fundamental cosine, the <b>±2</b> pair a higher harmonic. Abbe's key
+        insight is in <b>panel 3</b>: <b>adding those sine waves back together reconstructs the interference pattern</b> — with only
+        the 0 order the field is flat (no image); add ±1 and the fringes appear; add ±2 and they sharpen toward the true mask. The
+        lens pupil acts as a <b>low-pass filter</b> — orders outside the NA are simply dropped from the sum, so the image is always
+        built from a <b>truncated</b> spectrum. Finally <span class="eq">to_real = IFFT</span> turns that captured spectrum into the
+        <b>wafer intensity</b> (<b>panel 4</b>). That FFT → keep-what-fits → IFFT round-trip is the entire imaging model inside the
+        SMO Studio. Physics is exaggerated for intuition, not drawn to scale.
+      </p>
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+  const $=id=>document.getElementById(id);
+
+  // ---- palette per order ----
+  const OCOL={0:"#f1fa8c",1:"#c9a6ff",2:"#8a52ff"};
+  const state={n:2, k:2, mode:"correct"};   // slit count, orders kept, mask-fft view mode
+  let animK=null, animTimer=null;   // during animation, only draw up to animK
+
+  // fundamental frequency (cycles across the panel width) set by slit count.
+  // more slits -> higher fundamental -> finer fringes.
+  function fundamental(){ return state.n - 1 + 1; }   // 2->2? keep simple: use n
+  function baseFreq(){ return state.n; }              // cycles across full width for the ±1 pair
+
+  // order weights (envelope) — DC + decreasing harmonics
+  const WEIGHT={0:0.5, 1:0.5, 2:0.28};
+
+  // how many orders are actually shown right now (animation clamps this)
+  function activeK(){ return animK===null ? state.k : Math.min(animK, state.k); }
+
+  // ---------- panel 1 : pupil spectrum (bar graph) ----------
+  function drawSpectrum(){
+    const cv=$("spectrum"), ctx=cv.getContext("2d");
+    const W=cv.width,H=cv.height;
+    ctx.clearRect(0,0,W,H); ctx.fillStyle="#070a0f"; ctx.fillRect(0,0,W,H);
+    const cx=W/2, base=H-24, maxH=H-46;
+    // axis
+    ctx.strokeStyle="#1e2733"; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(30,base); ctx.lineTo(W-30,base); ctx.stroke();
+    // NA window shading (orders beyond k are "outside NA")
+    const slot=(W-120)/ (2*2+1);       // spacing for up to ±2
+    const K=activeK();
+    // draw all possible order positions faint, then the kept ones bright
+    for(let m=-2;m<=2;m++){
+      const x=cx + m*slot;
+      const kept = Math.abs(m)<=K;
+      const wgt=WEIGHT[Math.abs(m)];
+      const h=wgt*maxH*2;
+      const col=OCOL[Math.abs(m)];
+      // stem
+      ctx.strokeStyle = kept?col:"#2a3644";
+      ctx.lineWidth = kept?3:1.5;
+      ctx.beginPath(); ctx.moveTo(x,base); ctx.lineTo(x,base-h); ctx.stroke();
+      // spike head
+      ctx.fillStyle = kept?col:"#2a3644";
+      ctx.beginPath(); ctx.arc(x,base-h, kept?5:3, 0, 7); ctx.fill();
+      if(kept){
+        ctx.shadowColor=col; ctx.shadowBlur=10;
+        ctx.beginPath(); ctx.arc(x,base-h,4,0,7); ctx.fill(); ctx.shadowBlur=0;
+      }
+      // label
+      ctx.fillStyle = kept?col:"#3c4757";
+      ctx.font="11px 'DM Mono',monospace"; ctx.textAlign="center";
+      ctx.fillText(m===0?"0":(m>0?"+"+m:m), x, base+16);
+      if(!kept){
+        ctx.fillStyle="#ff5555"; ctx.font="8px 'DM Mono',monospace";
+        ctx.fillText("clipped", x, base-h-10);
+      }
+    }
+    // axis caption
+    ctx.fillStyle="#5c6773"; ctx.font="10px 'DM Mono',monospace"; ctx.textAlign="left";
+    ctx.fillText("← spatial frequency (pupil position) →", 34, 16);
+  }
+
+  // ---------- panel 2 : each order as a sine wave ----------
+  function drawWaves(){
+    const cv=$("waves"), ctx=cv.getContext("2d");
+    const W=cv.width,H=cv.height;
+    ctx.clearRect(0,0,W,H); ctx.fillStyle="#070a0f"; ctx.fillRect(0,0,W,H);
+    const K=activeK();
+    // one lane per shown order group: 0, ±1, ±2 -> up to 3 lanes
+    const lanes=[]; for(let m=0;m<=K;m++) lanes.push(m);
+    const laneH=H/Math.max(lanes.length,1);
+    lanes.forEach((m,i)=>{
+      const midY=laneH*(i+0.5);
+      const col=OCOL[m];
+      const f=baseFreq()*m;                  // 0 -> flat, 1 -> fundamental, 2 -> 2x
+      const amp=(m===0? 0 : WEIGHT[m]*laneH*0.7);
+      ctx.strokeStyle=col; ctx.lineWidth=1.8; ctx.globalAlpha=.95;
+      ctx.beginPath();
+      for(let px=30;px<=W-30;px++){
+        const xx=(px-30)/(W-60);
+        const y = m===0 ? midY - WEIGHT[0]*laneH*0.5     // DC = constant offset line
+                        : midY - amp*Math.cos(2*Math.PI*f*xx);
+        if(px===30)ctx.moveTo(px,y);else ctx.lineTo(px,y);
+      }
+      ctx.stroke(); ctx.globalAlpha=1;
+      // lane label
+      ctx.fillStyle=col; ctx.font="10px 'DM Mono',monospace"; ctx.textAlign="left";
+      const lbl = m===0? "0 order · DC (flat brightness)"
+                       : (m===1? "±1 · fundamental cosine" : "±2 · 2× harmonic");
+      ctx.fillText(lbl, 34, midY-laneH*0.30);
+      // faint lane divider
+      if(i>0){ctx.strokeStyle="#141b24";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(20,laneH*i);ctx.lineTo(W-20,laneH*i);ctx.stroke();}
+    });
+  }
+
+  // amplitude(x) = sum of cosines for currently kept orders
+  function amplitudeAt(xx){
+    const K=activeK(); let a=0;
+    for(let m=0;m<=K;m++){
+      const f=baseFreq()*m;
+      a += (m===0? WEIGHT[0] : WEIGHT[m]*Math.cos(2*Math.PI*f*xx));
+    }
+    return a;
+  }
+
+  // ---------- panel 3 : the sum (interference pattern, field) ----------
+  function drawSum(){
+    const cv=$("sum"), ctx=cv.getContext("2d");
+    const W=cv.width,H=cv.height;
+    ctx.clearRect(0,0,W,H); ctx.fillStyle="#070a0f"; ctx.fillRect(0,0,W,H);
+    const midY=H/2;
+    // zero line
+    ctx.strokeStyle="#1e2733"; ctx.lineWidth=1; ctx.setLineDash([4,5]);
+    ctx.beginPath(); ctx.moveTo(30,midY); ctx.lineTo(W-30,midY); ctx.stroke(); ctx.setLineDash([]);
+    // the summed amplitude
+    ctx.strokeStyle="#8be9fd"; ctx.lineWidth=2.2;
+    ctx.shadowColor="#8be9fd"; ctx.shadowBlur=8;
+    ctx.beginPath();
+    for(let px=30;px<=W-30;px++){
+      const xx=(px-30)/(W-60);
+      const a=amplitudeAt(xx);
+      const y=midY - a*(H*0.34);
+      if(px===30)ctx.moveTo(px,y);else ctx.lineTo(px,y);
+    }
+    ctx.stroke(); ctx.shadowBlur=0;
+    ctx.fillStyle="#5c6773"; ctx.font="10px 'DM Mono',monospace"; ctx.textAlign="left";
+    ctx.fillText("summed field amplitude across the wafer", 34, 16);
+  }
+
+  // ---------- panel 4 : wafer image (intensity = |sum|^2) ----------
+  function drawWafer(){
+    const cv=$("wafer"), ctx=cv.getContext("2d");
+    const W=cv.width,H=cv.height;
+    ctx.clearRect(0,0,W,H);
+    const K=activeK();
+    // compute intensity line
+    const line=new Float32Array(W); let mn=1e9,mx=-1e9;
+    for(let px=0;px<W;px++){
+      const xx=px/W;
+      const a=amplitudeAt(xx);
+      const I=a*a;
+      line[px]=I; if(I<mn)mn=I; if(I>mx)mx=I;
+    }
+    const span=(mx-mn)||1;
+    const img=ctx.createImageData(W,H);
+    for(let px=0;px<W;px++){
+      let I=(line[px]-mn)/span;
+      // DC-only case: flat -> render mid glow, not full contrast
+      if(K===0) I=0.32;
+      I=Math.pow(Math.min(1,Math.max(0,I)),0.85);
+      const r=Math.round(178*I), g=Math.round(100*I), b=Math.round(255*I);
+      for(let y=0;y<H;y++){const idx=(y*W+px)*4;img.data[idx]=r;img.data[idx+1]=g;img.data[idx+2]=b;img.data[idx+3]=255;}
+    }
+    ctx.putImageData(img,0,0);
+    // top/bottom trim
+    ctx.fillStyle="rgba(0,0,0,.3)"; ctx.fillRect(0,0,W,4); ctx.fillRect(0,H-4,W,4);
+  }
+
+  // ---------- metrics ----------
+  function updateMetrics(){
+    const K=activeK();
+    const specParts=["0"]; for(let m=1;m<=K;m++)specParts.push("±"+m);
+    $("m-spec").textContent=specParts.join(", ");
+    const nWaves = 1 + 2*K;   // 0 + pairs
+    $("m-spec-n").textContent = (K+1)+" spike group"+(K? "s":"")+" kept — "+nWaves+" sine wave"+(nWaves>1?"s":"")+" summed.";
+
+    const q=$("m-quality"),pill=$("m-pill"),abbe=$("m-abbe");
+    if(K===0){
+      q.textContent="Flat (no pattern)"; pill.className="pill bad"; pill.textContent="only DC — image lost";
+      abbe.textContent="0 order alone = brightness only";
+    } else if(K===1){
+      q.textContent="Coarse fringes"; pill.className="pill mid"; pill.textContent="fundamental only";
+      abbe.textContent="±1 adds the basic fringe";
+    } else {
+      q.textContent="Sharp fringes"; pill.className="pill good"; pill.textContent="pattern resolved";
+      abbe.textContent="±2 sharpens toward the mask";
+    }
+  }
+
+  // ---------- render all ----------
+  // ---------- panel 0 : the whole mask -> ONE fft ----------
+  function slitCentersPx(W){
+    const margin=W*0.10, span=W-2*margin;
+    const cs=[]; for(let i=0;i<state.n;i++) cs.push(margin + span*(i+0.5)/state.n);
+    return cs;
+  }
+  function drawMaskFFT(){
+    const cv=$("maskfft"), ctx=cv.getContext("2d");
+    const W=cv.width,H=cv.height;
+    ctx.clearRect(0,0,W,H); ctx.fillStyle="#070a0f"; ctx.fillRect(0,0,W,H);
+
+    const maskX0=40, maskX1=W*0.30;         // mask region (left)
+    const boxX0=W*0.40, boxX1=W*0.60;       // FFT box (middle)
+    const outX0=W*0.70, outX1=W-40;         // spectrum out (right)
+    const midY=H/2;
+    const slitW=(maskX1-maskX0)*0.12;
+    const centers=slitCentersPx(maskX1-maskX0).map(c=>c+maskX0);
+
+    // --- draw the mask as ONE continuous plate with slit openings ---
+    // plate
+    ctx.fillStyle="#141b24"; ctx.strokeStyle="#50fa7b"; ctx.lineWidth=1.4;
+    const plateY0=midY-42, plateY1=midY+42;
+    ctx.fillRect(maskX0,plateY0,(maskX1-maskX0),plateY1-plateY0);
+    ctx.strokeRect(maskX0,plateY0,(maskX1-maskX0),plateY1-plateY0);
+    // slit openings (holes in the one plate)
+    ctx.fillStyle="#070a0f";
+    centers.forEach(c=>ctx.fillRect(c-slitW/2,plateY0+2,slitW,(plateY1-plateY0)-4));
+    // bright emerging field dots
+    centers.forEach((c,i)=>{
+      ctx.fillStyle=["#c9a6ff","#8a52ff","#a06bff","#b98cff"][i%4];
+      ctx.beginPath(); ctx.arc(c,midY,3.2,0,7); ctx.fill();
+    });
+    ctx.fillStyle="#50fa7b"; ctx.font="10px 'DM Mono',monospace"; ctx.textAlign="center";
+    ctx.fillText("MASK  ·  one field, "+state.n+" slits", (maskX0+maskX1)/2, plateY1+18);
+
+    if(state.mode==="correct"){
+      // --- ONE fft box ---
+      // arrows: all slits -> single box
+      ctx.strokeStyle="#2a3644"; ctx.lineWidth=1;
+      centers.forEach(c=>{
+        ctx.beginPath(); ctx.moveTo(c,midY); ctx.lineTo(boxX0,midY);
+        ctx.globalAlpha=.5; ctx.stroke(); ctx.globalAlpha=1;
+      });
+      // box
+      ctx.fillStyle="#10202f"; ctx.strokeStyle="#8be9fd"; ctx.lineWidth=1.6;
+      roundRect(ctx,boxX0,midY-26,boxX1-boxX0,52,7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle="#8be9fd"; ctx.font="bold 15px 'DM Mono',monospace"; ctx.textAlign="center";
+      ctx.fillText("FFT", (boxX0+boxX1)/2, midY+5);
+      ctx.font="8.5px 'DM Mono',monospace"; ctx.fillStyle="#5c6773";
+      ctx.fillText("to_pupil", (boxX0+boxX1)/2, midY+20);
+      // box -> one spectrum
+      ctx.strokeStyle="#8be9fd"; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(boxX1,midY); ctx.lineTo(outX0,midY); ctx.stroke();
+      // mini spectrum on the right (echo of panel 1)
+      drawMiniSpectrum(ctx,outX0,outX1,midY);
+      ctx.fillStyle="#8be9fd"; ctx.font="10px 'DM Mono',monospace"; ctx.textAlign="center";
+      ctx.fillText("ONE spectrum", (outX0+outX1)/2, midY+46);
+    } else {
+      // --- WRONG model: N separate fft boxes, crossed out ---
+      const n=state.n;
+      const bh=Math.min(30, (H-20)/n - 6);
+      const gap=(H-14)/n;
+      centers.forEach((c,i)=>{
+        const by=8+gap*i+gap/2;
+        // arrow from this slit to its own box
+        ctx.strokeStyle="#3c2530"; ctx.lineWidth=1;
+        ctx.beginPath(); ctx.moveTo(c,midY); ctx.lineTo(boxX0,by); ctx.globalAlpha=.6; ctx.stroke(); ctx.globalAlpha=1;
+        // small box
+        ctx.fillStyle="#221016"; ctx.strokeStyle="#ff5555"; ctx.lineWidth=1.3;
+        roundRect(ctx,boxX0,by-bh/2,boxX1-boxX0,bh,5); ctx.fill(); ctx.stroke();
+        ctx.fillStyle="#ff8888"; ctx.font="bold 11px 'DM Mono',monospace"; ctx.textAlign="center";
+        ctx.fillText("FFT", (boxX0+boxX1)/2, by+4);
+      });
+      // big red cross over the whole per-slit column
+      ctx.strokeStyle="#ff5555"; ctx.lineWidth=2.4; ctx.globalAlpha=.85;
+      ctx.beginPath(); ctx.moveTo(boxX0-10,10); ctx.lineTo(boxX1+10,H-10); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(boxX1+10,10); ctx.lineTo(boxX0-10,H-10); ctx.stroke();
+      ctx.globalAlpha=1;
+      ctx.fillStyle="#ff5555"; ctx.font="10px 'DM Mono',monospace"; ctx.textAlign="center";
+      ctx.fillText("not how it works", (boxX0+boxX1)/2, H-4);
+      // still resolves to one spectrum (linearity) on the right, faded
+      ctx.globalAlpha=.6; drawMiniSpectrum(ctx,outX0,outX1,midY); ctx.globalAlpha=1;
+      ctx.fillStyle="#5c6773"; ctx.font="9px 'DM Mono',monospace"; ctx.textAlign="center";
+      ctx.fillText("(they'd sum to the SAME one spectrum)", (outX0+outX1)/2, midY+46);
+    }
+  }
+  function roundRect(ctx,x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+  }
+  function drawMiniSpectrum(ctx,x0,x1,midY){
+    const cx=(x0+x1)/2, slot=(x1-x0)/6;
+    ctx.strokeStyle="#1e2733"; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x0,midY+30); ctx.lineTo(x1,midY+30); ctx.stroke();
+    for(let m=-2;m<=2;m++){
+      const x=cx+m*slot, wgt=WEIGHT[Math.abs(m)], h=wgt*70, col=OCOL[Math.abs(m)];
+      ctx.strokeStyle=col; ctx.lineWidth=2.4;
+      ctx.beginPath(); ctx.moveTo(x,midY+30); ctx.lineTo(x,midY+30-h); ctx.stroke();
+      ctx.fillStyle=col; ctx.beginPath(); ctx.arc(x,midY+30-h,3,0,7); ctx.fill();
+    }
+  }
+
+  function render(){
+    drawMaskFFT(); drawSpectrum(); drawWaves(); drawSum(); drawWafer(); updateMetrics();
+  }
+
+  // ---------- animation: add orders one by one ----------
+  function play(){
+    if(animTimer){clearInterval(animTimer);animTimer=null;}
+    $("play").disabled=true;
+    animK=0; render();
+    animTimer=setInterval(()=>{
+      animK++;
+      if(animK>state.k){
+        clearInterval(animTimer);animTimer=null;
+        setTimeout(()=>{animK=null;render();$("play").disabled=false;},700);
+        render(); return;
+      }
+      render();
+    }, 1100);
+  }
+
+  // ---------- wire ----------
+  function syncSeg(segId, key, castNum){
+    document.querySelectorAll("#"+segId+" button").forEach(b=>{
+      const val = castNum(b.dataset.n!==undefined?b.dataset.n:b.dataset.k);
+      b.classList.toggle("active", val===state[key]);
+    });
+  }
+  document.querySelectorAll("#slit-seg button").forEach(b=>{
+    b.addEventListener("click",()=>{ state.n=+b.dataset.n; animK=null; syncSeg("slit-seg","n",Number); render(); });
+  });
+  document.querySelectorAll("#order-seg button").forEach(b=>{
+    b.addEventListener("click",()=>{ state.k=+b.dataset.k; animK=null; syncSeg("order-seg","k",Number); render(); });
+  });
+  // fix active-state syncing (dataset keys differ per seg)
+  function syncSlit(){document.querySelectorAll("#slit-seg button").forEach(b=>b.classList.toggle("active",+b.dataset.n===state.n));}
+  function syncOrd(){document.querySelectorAll("#order-seg button").forEach(b=>b.classList.toggle("active",+b.dataset.k===state.k));}
+  document.querySelectorAll("#slit-seg button").forEach(b=>b.addEventListener("click",syncSlit));
+  document.querySelectorAll("#order-seg button").forEach(b=>b.addEventListener("click",syncOrd));
+
+  $("play").addEventListener("click",play);
+
+  // mask-FFT mode toggle
+  function setMode(m){
+    state.mode=m;
+    $("tg-correct").classList.toggle("active", m==="correct");
+    $("tg-wrong").classList.toggle("active", m==="wrong");
+    $("maskfft-note").innerHTML = (m==="correct")
+      ? 'The transform takes the <b style="color:#50fa7b">entire mask field at once</b> — all slits together as a single input — and produces <b style="color:#8be9fd">one spectrum</b>. There is no per-slit FFT.'
+      : 'A common misconception: one FFT per slit. The optics never does this. Because the FFT is <b style="color:#ff5555">linear</b>, transforming each slit separately and summing <b>would give the identical spectrum</b> — but it is computed as <b style="color:#50fa7b">one transform of the whole mask</b>, and physically the diffraction pattern is a property of the full aperture, not of isolated slits.';
+    render();
+  }
+  $("tg-correct").addEventListener("click",()=>setMode("correct"));
+  $("tg-wrong").addEventListener("click",()=>setMode("wrong"));
+
+  syncSlit(); syncOrd(); setMode("correct");
+})();
+</script>
+</body>
+</html>
