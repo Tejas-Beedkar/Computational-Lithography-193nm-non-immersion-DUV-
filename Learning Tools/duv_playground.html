@@ -48,6 +48,15 @@
   .presets button:hover{border-color:var(--violet);color:var(--violet-lite)}
   .presets button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 
+  .seg{display:flex;gap:6px}
+  .seg button{flex:1;background:#131c27;border:1px solid var(--edge2);color:var(--dim);
+    font-family:var(--mono);font-size:11px;padding:8px 2px;border-radius:5px;cursor:pointer;transition:.15s;line-height:1.3}
+  .seg button span{font-size:8.5px;color:var(--dimmer)}
+  .seg button:hover{border-color:var(--blue)}
+  .seg button.active{border-color:var(--blue);color:var(--blue);background:#10202f}
+  .seg button.active span{color:var(--blue);opacity:.7}
+  .seg button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+
   /* ---- stage ---- */
   .stage-wrap{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:6px}
   svg{display:block;width:100%;height:auto}
@@ -82,7 +91,15 @@
       <div class="card c-blue">
         <h2>Illumination · DOE</h2>
         <div class="ctl">
-          <label>Dipole separation <b id="v-dipole">0.55&nbsp;σ</b></label>
+          <label>DOE shape <b id="v-doe">dipole</b></label>
+          <div class="seg" id="doe-seg">
+            <button data-doe="dipole" class="active">dipole<br><span>2 poles</span></button>
+            <button data-doe="quad">quad<br><span>4 poles</span></button>
+            <button data-doe="hex">hex<br><span>6 poles</span></button>
+          </div>
+        </div>
+        <div class="ctl">
+          <label>Pole separation <b id="v-dipole">0.55&nbsp;σ</b></label>
           <input class="blue-thumb" id="dipole" type="range" min="0" max="90" value="55">
         </div>
         <div class="ctl" style="margin-bottom:0">
@@ -112,6 +129,9 @@
         </div>
         <div class="presets" style="margin-top:8px">
           <button data-p="smo" style="border-color:var(--violet);color:var(--violet-lite)">✦ SMO sweet-spot</button>
+        </div>
+        <div class="presets" style="margin-top:8px">
+          <button data-p="rescue" style="border-color:var(--blue);color:var(--blue)">↻ DOE rescue — then switch dipole→quad→hex</button>
         </div>
       </div>
     </div>
@@ -149,6 +169,7 @@
         <span><i class="dot" style="background:#f1fa8c"></i>0 order</span>
         <span><i class="dot" style="background:#c9a6ff"></i>±1 order</span>
         <span><i class="dot" style="background:#8a52ff"></i>±2 order</span>
+        <span><i class="dot" style="background:#c86bff"></i>±3 order</span>
         <span><i class="dot" style="background:#ff5555"></i>lost (outside NA)</span>
       </div>
 
@@ -170,12 +191,13 @@
       </div>
 
       <p class="foot">
-        <b>How to read it:</b> the slit <b>pitch</b> sets the diffraction angle — finer pitch throws the ±1 and ±2 orders out to steeper angles.
+        <b>How to read it:</b> the slit <b>pitch</b> sets the diffraction angle — finer pitch throws the ±1, ±2, ±3 orders out to steeper angles.
         The lens can only catch orders that fall inside its <b>NA</b>. With just the 0 order the wafer washes out to a flat blur; add the ±1 order
-        and the slits start to form but <b>diffraction fringes ripple in</b>; capture the ±2 order too and the wafer reproduces the <b>exact two-slit
-        mask</b> — that's ideal SMO. <b>Dipole separation</b> is the trick that gets you there: shifting the illumination off-axis slides the orders
-        sideways in the pupil, pulling a high order back inside the NA that would otherwise be lost. The more orders you keep, the closer the wafer
-        image gets to the true reticle pattern; drop one and its diffraction fringes creep back in. Physics here is exaggerated for intuition, not to scale.
+        and the slits start to form but <b>diffraction fringes ripple in</b>; capture ±2 and the wafer reproduces the two-slit mask; capture ±3 and the
+        edges get razor-sharp. The <b>DOE shape</b> is what rescues those high orders: each illumination pole hits the reticle from a different angle and
+        slides a copy of the whole order-comb sideways in the pupil. A <b>dipole</b> (2 poles) can rescue one order; a <b>quad</b> (4 poles) reaches
+        further; a <b>hex</b> (6 poles) pulls even the ±3 order back inside the NA. Try the <b>DOE rescue</b> preset, then switch dipole → quad → hex on
+        the same pitch/NA and watch the fringes collapse into clean slits. Physics here is exaggerated for intuition, not to scale.
       </p>
     </div>
   </div>
@@ -192,28 +214,44 @@
   const LENS_TOP=150, LENS_BOT=410;          // pupil vertical extent
   const PUPIL_H=(LENS_BOT-LENS_TOP)/2;        // half-height of pupil
 
-  const state={dipole:55,na:90,pitch:60,width:40};
+  const state={doe:"dipole", dipole:55, na:90, pitch:60, width:40};
 
-  // color per order
-  const OCOL={0:"#f1fa8c",1:"#c9a6ff",2:"#8a52ff"};
+  // color per order (now up to ±3)
+  const OCOL={0:"#f1fa8c",1:"#c9a6ff",2:"#8a52ff",3:"#c86bff"};
 
-  const K_SPREAD=42;   // tuned so all three capture-regimes are reachable
+  const K_SPREAD=42;   // tuned so the capture-regimes are reachable
+  const MAX_ORDER=3;
+
+  // DOE pole layout: offsets given as MULTIPLES of one order-step (off1), so they scale with pitch.
+  // More poles = more distinct off-axis illumination angles = more high orders can be pulled inside NA.
+  function poleOffsets(){
+    const s=state.dipole/90;   // 0..1 pole-separation strength
+    if(state.doe==="quad") return [ +1*s, -1*s, +2*s, -2*s ];
+    if(state.doe==="hex")  return [ +1*s, -1*s, +2*s, -2*s, +3*s, -3*s ];
+    return [ +1*s, -1*s ]; // dipole
+  }
+
   function computeOrders(){
-    // slit pitch (slider 20..100) -> normalized 0.2..1.0. Finer pitch => wider diffraction angle.
     const pitchNorm=state.pitch/100;
     const off1=K_SPREAD/pitchNorm;                 // pupil offset of the ±1 order
-    // off_m = m * off1  (exaggerated but self-consistent)
-    // dipole = off-axis illumination: slides the whole order-comb sideways in the pupil (the SMO trick)
-    const dipoleShift=(state.dipole/90)*PUPIL_H*0.8;
     const naCut=(state.na/100)*PUPIL_H;            // pupil half-height the lens can accept
+    const poles=poleOffsets().map(p=>p*off1);      // pole offsets in pixels
 
+    // For each diffraction order, it is captured if ANY illumination pole shifts it inside the NA.
+    // We record the pupil crossing height using the BEST (most-centered) pole, for drawing.
     const orders=[{m:0,side:0,yOff:0,captured:0<=naCut}];
-    for(let m=1;m<=2;m++){
-      const off=m*off1;
-      const yPlus = off - dipoleShift;   // +m side pulled inward by the dipole
-      const yMinus= off + dipoleShift;   // -m side pushed outward
-      orders.push({m, side:+1, yOff:yPlus,  captured:Math.abs(yPlus) <=naCut});
-      orders.push({m, side:-1, yOff:yMinus, captured:Math.abs(yMinus)<=naCut});
+    for(let m=1;m<=MAX_ORDER;m++){
+      for(const side of [+1,-1]){
+        const base=side*m*off1;
+        // best pole = the one that brings this order closest to the axis
+        let bestY=base, bestAbs=Math.abs(base), captured=Math.abs(base)<=naCut;
+        for(const p of poles){
+          const y=base-p;
+          if(Math.abs(y)<bestAbs){ bestAbs=Math.abs(y); bestY=y; }
+          if(Math.abs(y)<=naCut) captured=true;
+        }
+        orders.push({m, side, yOff:bestY, captured});
+      }
     }
     return orders;
   }
@@ -234,18 +272,25 @@
     const orders=computeOrders();
     const maxOrd=maxCapturedOrder(orders);
 
-    // ---- illumination beam + DOE dipole ----
+    // ---- illumination beam + DOE poles ----
     const gIll=$("g-illum"); gIll.textContent="";
     const gDoe=$("g-doe"); gDoe.textContent="";
-    const sep=(state.dipole/90)*36+6;   // visual pole separation
     // single beam from laser to DOE
     gIll.appendChild(el("rect",{x:120,y:AXIS-8,width:60,height:16,fill:"#a06bff","fill-opacity":.8,filter:"url(#soft)"}));
     // DOE plate
     gDoe.appendChild(el("rect",{x:180,y:AXIS-52,width:14,height:104,rx:2,fill:"#182a44",stroke:"#4aa3ff","stroke-width":1.6}));
-    const t1=el("text",{x:187,y:AXIS+70,fill:"#4aa3ff","font-size":9,"text-anchor":"middle"});t1.textContent="DOE";gDoe.appendChild(t1);
-    // two poles out, parallel to reticle
-    gDoe.appendChild(el("rect",{x:194,y:AXIS-sep-6,width:236,height:12,fill:"#a06bff","fill-opacity":.75,filter:"url(#soft)"}));
-    gDoe.appendChild(el("rect",{x:194,y:AXIS+sep-6,width:236,height:12,fill:"#a06bff","fill-opacity":.75,filter:"url(#soft)"}));
+    const t1=el("text",{x:187,y:AXIS+72,fill:"#4aa3ff","font-size":9,"text-anchor":"middle"});t1.textContent=state.doe.toUpperCase();gDoe.appendChild(t1);
+    // one beam per illumination pole, spread vertically. more poles = more beams hitting the reticle.
+    const nPoles = state.doe==="hex"?6 : state.doe==="quad"?4 : 2;
+    const maxSpread=(state.dipole/90)*40+6;
+    const poleYs=[];
+    for(let i=0;i<nPoles/2;i++){
+      const frac=(nPoles===2)?1:(i+1)/(nPoles/2);   // spread poles across the aperture
+      poleYs.push(+maxSpread*frac, -maxSpread*frac);
+    }
+    poleYs.forEach(dy=>{
+      gDoe.appendChild(el("rect",{x:194,y:AXIS+dy-4,width:236,height:8,fill:"#a06bff","fill-opacity":.7,filter:"url(#soft)"}));
+    });
 
     // ---- reticle ----
     const gRet=$("g-reticle"); gRet.textContent="";
@@ -336,7 +381,7 @@
 
   // ---- ground-truth mask: exactly two vertical slits (what an IDEAL image reproduces) ----
   // Precompute the mask's Fourier coefficients once.
-  const RECON_W=150, M_IDEAL=5;           // capturing up to ±M_IDEAL orders = a faithful copy
+  const RECON_W=150, M_IDEAL=6;           // capturing up to ±M_IDEAL orders = a faithful copy
   const MASK_COEFF=(function(){
     const cx=RECON_W/2, sep=RECON_W*0.20, half=RECON_W*0.055;
     const mask=new Array(RECON_W).fill(0);
@@ -362,7 +407,7 @@
     const W=cv.width, H=cv.height;
     ctx.fillStyle="#000"; ctx.fillRect(0,0,W,H);
 
-    const budget = maxOrd<=0 ? 0 : Math.round((maxOrd/2)*M_IDEAL);   // 0 -> 0, 1 -> 3, 2 -> 5
+    const budget = maxOrd<=0 ? 0 : Math.round((maxOrd/3)*M_IDEAL);   // 0->0, 1->2, 2->4, 3->6
     const completeness = budget/M_IDEAL;                              // 0..1
     const FRINGE_EXAG = 2.1;   // amplify the diffraction ripple so distortion is obvious
 
@@ -422,19 +467,22 @@
   function updateMetrics(orders, maxOrd){
     const capturedList=[];
     if(orders.some(o=>o.m===0&&o.captured)) capturedList.push("0");
-    if(orders.some(o=>o.m===1&&o.captured)) capturedList.push("±1");
-    if(orders.some(o=>o.m===2&&o.captured)) capturedList.push("±2");
+    [1,2,3].forEach(m=>{ if(orders.some(o=>o.m===m&&o.captured)) capturedList.push("±"+m); });
     $("m-orders").textContent = capturedList.length?capturedList.join(", "):"none";
 
     const q=$("m-quality"), pill=$("m-pill"), note=$("m-orders-n");
-    if(maxOrd>=2){
+    if(maxOrd>=3){
+      q.textContent="Crisp slits";
+      pill.className="pill good"; pill.textContent="exact mask + sharp edges";
+      note.textContent="Up to ±3 captured — the "+state.doe+" DOE rescued the high orders. Sharpest result.";
+    } else if(maxOrd===2){
       q.textContent="Two slits";
-      pill.className="pill good"; pill.textContent="exact mask reproduced";
-      note.textContent="0, ±1 and ±2 all captured — the wafer shows the true two-slit pattern.";
+      pill.className="pill good"; pill.textContent="mask reproduced";
+      note.textContent="0, ±1, ±2 captured — clean two slits. More poles could pull ±3 in for even sharper edges.";
     } else if(maxOrd===1){
       q.textContent="Fringes";
       pill.className="pill mid"; pill.textContent="diffraction fringes creep in";
-      note.textContent="±2 is missing — the slits smear and ripple instead of coming out clean.";
+      note.textContent="±2 is missing — the slits smear and ripple. Try more DOE poles to rescue it.";
     } else {
       q.textContent="Blur";
       pill.className="pill bad"; pill.textContent="pattern lost";
@@ -444,16 +492,26 @@
 
   // ---- presets ----
   const PRESETS={
-    zero:   {dipole:0,  na:45, pitch:20, width:40},   // fine pitch throws ±1 out of a small NA => 0 only
-    first:  {dipole:0,  na:98, pitch:33, width:40},   // NA now catches ±1, ±2 still just outside
-    second: {dipole:0,  na:100,pitch:65, width:40},   // coarser pitch pulls ±2 inside => sharp
-    smo:    {dipole:90, na:82, pitch:40, width:35}     // on-axis loses ±2; dipole slides +2 back in
+    zero:   {doe:"dipole", dipole:0,  na:45, pitch:20, width:40},   // fine pitch throws ±1 out of a small NA => 0 only
+    first:  {doe:"dipole", dipole:0,  na:98, pitch:33, width:40},   // NA now catches ±1, ±2 still just outside
+    second: {doe:"dipole", dipole:0,  na:100,pitch:65, width:40},   // coarser pitch pulls ±2 inside => sharp
+    smo:    {doe:"dipole", dipole:90, na:82, pitch:40, width:35},   // on-axis loses ±2; dipole slides +2 back in
+    // DOE-rescue chain: SAME tough pitch/NA — only the DOE changes. Watch orders get rescued.
+    rescue: {doe:"quad",   dipole:85, na:48, pitch:22, width:35}    // dipole=fringes, quad=clean, hex=crisp
   };
   function applyPreset(p){
     const s=PRESETS[p]; if(!s)return;
     Object.assign(state,s);
     $("dipole").value=s.dipole; $("na").value=s.na; $("pitch").value=s.pitch; $("width").value=s.width;
+    syncDoeButtons();
     render();
+  }
+
+  function syncDoeButtons(){
+    document.querySelectorAll("#doe-seg button").forEach(b=>{
+      b.classList.toggle("active", b.dataset.doe===state.doe);
+    });
+    $("v-doe").textContent=state.doe;
   }
 
   // ---- wire up ----
@@ -461,6 +519,9 @@
   bind("dipole","dipole"); bind("na","na"); bind("pitch","pitch"); bind("width","width");
   document.querySelectorAll(".presets button").forEach(b=>{
     b.addEventListener("click",()=>applyPreset(b.dataset.p));
+  });
+  document.querySelectorAll("#doe-seg button").forEach(b=>{
+    b.addEventListener("click",()=>{ state.doe=b.dataset.doe; syncDoeButtons(); render(); });
   });
 
   // inject a soft-glow filter into the svg defs
@@ -470,6 +531,7 @@
     <feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
   svg.insertBefore(defs,svg.firstChild);
 
+  syncDoeButtons();
   render();
 })();
 </script>
