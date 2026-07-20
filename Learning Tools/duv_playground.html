@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DUV Lithography Playground · Source–Mask Optimization</title>
+<style>
+  :root{
+    --bg:#0a0e14; --panel:#0e141c; --edge:#1e2733; --edge2:#2a3644;
+    --ink:#e6e6e6; --dim:#5c6773; --dimmer:#3c4757;
+    --violet:#a06bff; --violet-lite:#c9a6ff; --violet-deep:#8a52ff;
+    --blue:#4aa3ff; --green:#50fa7b; --red:#ff5555; --yellow:#f1fa8c;
+    --mono:'DM Mono','Courier New',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono)}
+  body{padding:20px 22px 60px;-webkit-font-smoothing:antialiased}
+  a{color:var(--blue)}
+  h1{font-size:22px;font-weight:700;letter-spacing:2px;margin:0}
+  .sub{color:var(--dim);font-size:12px;letter-spacing:.6px;margin:4px 0 0}
+  .rule{height:1px;background:var(--edge);margin:14px 0 18px}
+
+  .layout{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start}
+  @media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+  /* ---- controls ---- */
+  .controls{display:flex;flex-direction:column;gap:16px}
+  .card{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:14px 15px}
+  .card h2{font-size:11px;letter-spacing:1.4px;margin:0 0 12px;text-transform:uppercase}
+  .c-violet h2{color:var(--violet)} .c-green h2{color:var(--green)}
+  .c-blue h2{color:var(--blue)} .c-yellow h2{color:var(--yellow)}
+
+  .ctl{margin-bottom:14px}
+  .ctl:last-child{margin-bottom:0}
+  .ctl label{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-bottom:6px}
+  .ctl label b{color:var(--ink);font-weight:500}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:3px;background:var(--edge2);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:var(--violet);cursor:pointer;border:2px solid var(--bg);box-shadow:0 0 8px rgba(160,107,255,.6)}
+  input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--violet);cursor:pointer;border:2px solid var(--bg)}
+  .green-thumb::-webkit-slider-thumb{background:var(--green);box-shadow:0 0 8px rgba(80,250,123,.6)}
+  .green-thumb::-moz-range-thumb{background:var(--green)}
+  .blue-thumb::-webkit-slider-thumb{background:var(--blue);box-shadow:0 0 8px rgba(74,163,255,.6)}
+  .blue-thumb::-moz-range-thumb{background:var(--blue)}
+
+  .presets{display:flex;gap:7px;flex-wrap:wrap}
+  .presets button{flex:1;min-width:0;background:#131c27;border:1px solid var(--edge2);color:var(--ink);
+    font-family:var(--mono);font-size:10.5px;padding:8px 4px;border-radius:5px;cursor:pointer;transition:.15s;letter-spacing:.3px}
+  .presets button:hover{border-color:var(--violet);color:var(--violet-lite)}
+  .presets button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+
+  /* ---- stage ---- */
+  .stage-wrap{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:6px}
+  svg{display:block;width:100%;height:auto}
+
+  .readout{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+  @media(max-width:620px){.readout{grid-template-columns:1fr}}
+  .metric{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:12px 14px}
+  .metric .k{font-size:10px;letter-spacing:1px;color:var(--dim);text-transform:uppercase}
+  .metric .v{font-size:19px;margin-top:5px;color:var(--ink)}
+  .metric .n{font-size:10.5px;margin-top:4px;color:var(--dimmer);line-height:1.35}
+  .pill{display:inline-block;font-size:10px;padding:2px 7px;border-radius:20px;margin-top:6px}
+  .pill.good{background:rgba(80,250,123,.12);color:var(--green);border:1px solid rgba(80,250,123,.3)}
+  .pill.mid{background:rgba(241,250,140,.12);color:var(--yellow);border:1px solid rgba(241,250,140,.3)}
+  .pill.bad{background:rgba(255,85,85,.12);color:var(--red);border:1px solid rgba(255,85,85,.3)}
+
+  .orders-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:10.5px;color:var(--dim)}
+  .orders-legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:10px;height:10px;border-radius:50%}
+
+  .foot{margin-top:22px;color:var(--dimmer);font-size:11px;line-height:1.6;max-width:900px}
+  .foot b{color:var(--dim);font-weight:500}
+</style>
+</head>
+<body>
+  <h1>DUV 193&nbsp;nm LITHOGRAPHY · PLAYGROUND</h1>
+  <p class="sub">Source–Mask Optimization · move the sliders until the two slits resolve cleanly on the wafer</p>
+  <div class="rule"></div>
+
+  <div class="layout">
+    <!-- ================= CONTROLS ================= -->
+    <div class="controls">
+      <div class="card c-blue">
+        <h2>Illumination · DOE</h2>
+        <div class="ctl">
+          <label>Dipole separation <b id="v-dipole">0.55&nbsp;σ</b></label>
+          <input class="blue-thumb" id="dipole" type="range" min="0" max="90" value="55">
+        </div>
+        <div class="ctl" style="margin-bottom:0">
+          <label>Lens capture (NA) <b id="v-na">0.90</b></label>
+          <input class="blue-thumb" id="na" type="range" min="45" max="100" value="90">
+        </div>
+      </div>
+
+      <div class="card c-green">
+        <h2>Reticle · double slit</h2>
+        <div class="ctl">
+          <label>Slit pitch <b id="v-pitch">medium</b></label>
+          <input class="green-thumb" id="pitch" type="range" min="20" max="100" value="60">
+        </div>
+        <div class="ctl" style="margin-bottom:0">
+          <label>Slit width <b id="v-width">medium</b></label>
+          <input class="green-thumb" id="width" type="range" min="15" max="70" value="40">
+        </div>
+      </div>
+
+      <div class="card c-violet">
+        <h2>Try a preset</h2>
+        <div class="presets">
+          <button data-p="zero">0th only<br>(blur)</button>
+          <button data-p="first">+1st order<br>(fringes)</button>
+          <button data-p="second">+2nd order<br>(sharp)</button>
+        </div>
+        <div class="presets" style="margin-top:8px">
+          <button data-p="smo" style="border-color:var(--violet);color:var(--violet-lite)">✦ SMO sweet-spot</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= STAGE ================= -->
+    <div>
+      <div class="stage-wrap">
+        <svg id="stage" viewBox="0 0 1000 560" role="img" aria-label="Interactive DUV lithography light path">
+          <!-- optical axis -->
+          <line x1="60" y1="280" x2="960" y2="280" stroke="#1e2733" stroke-dasharray="6 6"/>
+
+          <!-- stage labels -->
+          <text x="120" y="40" fill="#e6e6e6" font-size="12" font-weight="bold" text-anchor="middle" letter-spacing="1">LASER · DOE</text>
+          <text x="430" y="40" fill="#e6e6e6" font-size="12" font-weight="bold" text-anchor="middle" letter-spacing="1">RETICLE</text>
+          <text x="680" y="40" fill="#e6e6e6" font-size="12" font-weight="bold" text-anchor="middle" letter-spacing="1">PROJECTION LENS</text>
+          <text x="905" y="40" fill="#e6e6e6" font-size="12" font-weight="bold" text-anchor="middle" letter-spacing="1">WAFER</text>
+
+          <!-- laser box -->
+          <rect x="60" y="256" width="60" height="48" rx="4" fill="#141b24" stroke="#ff5555" stroke-width="1.3"/>
+          <text x="90" y="277" fill="#ff5555" font-size="9" text-anchor="middle">ArF</text>
+          <text x="90" y="290" fill="#ff5555" font-size="8" text-anchor="middle">193nm</text>
+
+          <!-- dynamic groups (filled by JS) -->
+          <g id="g-illum"></g>
+          <g id="g-doe"></g>
+          <g id="g-reticle"></g>
+          <g id="g-orders"></g>
+          <g id="g-lens"></g>
+          <g id="g-wafer"></g>
+          <g id="g-labels"></g>
+        </svg>
+      </div>
+
+      <div class="orders-legend">
+        <span><i class="dot" style="background:#f1fa8c"></i>0 order</span>
+        <span><i class="dot" style="background:#c9a6ff"></i>±1 order</span>
+        <span><i class="dot" style="background:#8a52ff"></i>±2 order</span>
+        <span><i class="dot" style="background:#ff5555"></i>lost (outside NA)</span>
+      </div>
+
+      <div class="readout">
+        <div class="metric">
+          <div class="k">Orders captured</div>
+          <div class="v" id="m-orders">0, ±1, ±2</div>
+          <div class="n" id="m-orders-n">Every order inside the pupil helps rebuild the slits.</div>
+        </div>
+        <div class="metric">
+          <div class="k">Image quality</div>
+          <div class="v" id="m-quality">Sharp</div>
+          <div id="m-pill" class="pill good">two slits resolved</div>
+        </div>
+        <div class="metric">
+          <div class="k">Wafer image (2-D)</div>
+          <canvas id="wafer2d" width="150" height="90" style="width:100%;height:auto;border-radius:4px;background:#000;margin-top:2px"></canvas>
+        </div>
+      </div>
+
+      <p class="foot">
+        <b>How to read it:</b> the slit <b>pitch</b> sets the diffraction angle — finer pitch throws the ±1 and ±2 orders out to steeper angles.
+        The lens can only catch orders that fall inside its <b>NA</b>. With just the 0 order the wafer washes out to a flat blur; add the ±1 order
+        and the slits start to form but <b>diffraction fringes ripple in</b>; capture the ±2 order too and the wafer reproduces the <b>exact two-slit
+        mask</b> — that's ideal SMO. <b>Dipole separation</b> is the trick that gets you there: shifting the illumination off-axis slides the orders
+        sideways in the pupil, pulling a high order back inside the NA that would otherwise be lost. The more orders you keep, the closer the wafer
+        image gets to the true reticle pattern; drop one and its diffraction fringes creep back in. Physics here is exaggerated for intuition, not to scale.
+      </p>
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+  const $=id=>document.getElementById(id);
+  const NS="http://www.w3.org/2000/svg";
+  function el(tag,attrs){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
+
+  // geometry constants (SVG space)
+  const RET_X=430, LENS_X=680, LENS_R=680, WAFER_X=905, AXIS=280;
+  const LENS_TOP=150, LENS_BOT=410;          // pupil vertical extent
+  const PUPIL_H=(LENS_BOT-LENS_TOP)/2;        // half-height of pupil
+
+  const state={dipole:55,na:90,pitch:60,width:40};
+
+  // color per order
+  const OCOL={0:"#f1fa8c",1:"#c9a6ff",2:"#8a52ff"};
+
+  const K_SPREAD=42;   // tuned so all three capture-regimes are reachable
+  function computeOrders(){
+    // slit pitch (slider 20..100) -> normalized 0.2..1.0. Finer pitch => wider diffraction angle.
+    const pitchNorm=state.pitch/100;
+    const off1=K_SPREAD/pitchNorm;                 // pupil offset of the ±1 order
+    // off_m = m * off1  (exaggerated but self-consistent)
+    // dipole = off-axis illumination: slides the whole order-comb sideways in the pupil (the SMO trick)
+    const dipoleShift=(state.dipole/90)*PUPIL_H*0.8;
+    const naCut=(state.na/100)*PUPIL_H;            // pupil half-height the lens can accept
+
+    const orders=[{m:0,side:0,yOff:0,captured:0<=naCut}];
+    for(let m=1;m<=2;m++){
+      const off=m*off1;
+      const yPlus = off - dipoleShift;   // +m side pulled inward by the dipole
+      const yMinus= off + dipoleShift;   // -m side pushed outward
+      orders.push({m, side:+1, yOff:yPlus,  captured:Math.abs(yPlus) <=naCut});
+      orders.push({m, side:-1, yOff:yMinus, captured:Math.abs(yMinus)<=naCut});
+    }
+    return orders;
+  }
+
+  function maxCapturedOrder(orders){
+    let mx=0;
+    orders.forEach(o=>{ if(o.captured && o.m>mx) mx=o.m; });
+    return mx;
+  }
+
+  function render(){
+    // update labels
+    $("v-dipole").textContent=(state.dipole/100).toFixed(2)+" \u03c3";
+    $("v-na").textContent=(state.na/100).toFixed(2);
+    $("v-pitch").textContent = state.pitch<40?"fine":state.pitch>75?"coarse":"medium";
+    $("v-width").textContent = state.width<30?"narrow":state.width>55?"wide":"medium";
+
+    const orders=computeOrders();
+    const maxOrd=maxCapturedOrder(orders);
+
+    // ---- illumination beam + DOE dipole ----
+    const gIll=$("g-illum"); gIll.textContent="";
+    const gDoe=$("g-doe"); gDoe.textContent="";
+    const sep=(state.dipole/90)*36+6;   // visual pole separation
+    // single beam from laser to DOE
+    gIll.appendChild(el("rect",{x:120,y:AXIS-8,width:60,height:16,fill:"#a06bff","fill-opacity":.8,filter:"url(#soft)"}));
+    // DOE plate
+    gDoe.appendChild(el("rect",{x:180,y:AXIS-52,width:14,height:104,rx:2,fill:"#182a44",stroke:"#4aa3ff","stroke-width":1.6}));
+    const t1=el("text",{x:187,y:AXIS+70,fill:"#4aa3ff","font-size":9,"text-anchor":"middle"});t1.textContent="DOE";gDoe.appendChild(t1);
+    // two poles out, parallel to reticle
+    gDoe.appendChild(el("rect",{x:194,y:AXIS-sep-6,width:236,height:12,fill:"#a06bff","fill-opacity":.75,filter:"url(#soft)"}));
+    gDoe.appendChild(el("rect",{x:194,y:AXIS+sep-6,width:236,height:12,fill:"#a06bff","fill-opacity":.75,filter:"url(#soft)"}));
+
+    // ---- reticle ----
+    const gRet=$("g-reticle"); gRet.textContent="";
+    const pitchPx=(state.pitch/100)*70+18;   // vertical gap between slits on the mask
+    const wPx=(state.width/100)*22+6;         // slit height
+    const s1y=AXIS-pitchPx/2, s2y=AXIS+pitchPx/2;
+    gRet.appendChild(el("rect",{x:RET_X-8,y:AXIS-90,width:16,height:180,fill:"#282a36",stroke:"#50fa7b","stroke-width":1.4}));
+    gRet.appendChild(el("rect",{x:RET_X-8,y:s1y-wPx/2,width:16,height:wPx,fill:"#0a0e14"}));
+    gRet.appendChild(el("rect",{x:RET_X-8,y:s2y-wPx/2,width:16,height:wPx,fill:"#0a0e14"}));
+    // slit source dots
+    gRet.appendChild(el("circle",{cx:RET_X,cy:s1y,r:3,fill:"#c9a6ff",filter:"url(#soft)"}));
+    gRet.appendChild(el("circle",{cx:RET_X,cy:s2y,r:3,fill:"#8a52ff",filter:"url(#soft)"}));
+
+    // ---- diffraction orders through the lens ----
+    const gOrd=$("g-orders"); gOrd.textContent="";
+    // image points on wafer (demagnified => closer together)
+    const imgHalf=pitchPx*0.28;
+    const img1=AXIS-imgHalf, img2=AXIS+imgHalf;
+
+    // draw for each slit its captured orders converging to its image point
+    [{sy:s1y,iy:img1},{sy:s2y,iy:img2}].forEach(slit=>{
+      orders.forEach(o=>{
+        // pupil crossing height: axis + signed offset (order 0 sits on axis)
+        const yAtLens = AXIS + (o.side===0 ? 0 : Math.sign(o.side)*o.yOff);
+        if(o.captured){
+          const col=OCOL[o.m];
+          const op = o.m===0?.95:(o.m===1?.82:.7);
+          gOrd.appendChild(el("line",{x1:RET_X,y1:slit.sy,x2:LENS_X,y2:yAtLens,
+            stroke:col,"stroke-width":1.6,opacity:op}));
+          gOrd.appendChild(el("line",{x1:LENS_X,y1:yAtLens,x2:WAFER_X,y2:slit.iy,
+            stroke:col,"stroke-width":1.6,opacity:op}));
+        } else {
+          // lost order: dashed red heading out past the pupil edge, stops before the lens
+          const dir = (o.side===0?1:Math.sign(o.side));
+          const yEdge = AXIS + dir*Math.min(Math.abs(o.yOff), PUPIL_H+45);
+          gOrd.appendChild(el("line",{x1:RET_X,y1:slit.sy,x2:LENS_X-8,y2:yEdge,
+            stroke:"#ff5555","stroke-width":1.1,"stroke-dasharray":"4 4",opacity:.4}));
+        }
+      });
+    });
+
+    // ---- lens ----
+    const gLens=$("g-lens"); gLens.textContent="";
+    // NA visual: pupil aperture height
+    const naH=(state.na/100)*PUPIL_H;
+    gLens.appendChild(el("path",{d:`M${LENS_X},${AXIS-naH} Q${LENS_X+35},${AXIS} ${LENS_X},${AXIS+naH} Q${LENS_X+55},${AXIS} ${LENS_X},${AXIS-naH} Z`,
+      fill:"#4aa3ff","fill-opacity":.12,stroke:"#8be9fd","stroke-width":1.4,opacity:.9}));
+    // pupil edge markers
+    gLens.appendChild(el("line",{x1:LENS_X-14,y1:AXIS-naH,x2:LENS_X+14,y2:AXIS-naH,stroke:"#8be9fd","stroke-width":1,opacity:.5}));
+    gLens.appendChild(el("line",{x1:LENS_X-14,y1:AXIS+naH,x2:LENS_X+14,y2:AXIS+naH,stroke:"#8be9fd","stroke-width":1,opacity:.5}));
+    const naLbl=el("text",{x:LENS_X,y:AXIS-naH-8,fill:"#5c6773","font-size":8.5,"text-anchor":"middle"});
+    naLbl.textContent="NA edge"; gLens.appendChild(naLbl);
+
+    // ---- wafer ----
+    const gWaf=$("g-wafer"); gWaf.textContent="";
+    gWaf.appendChild(el("rect",{x:WAFER_X-6,y:AXIS-70,width:14,height:140,rx:2,fill:"#282a36",stroke:"#50fa7b","stroke-width":1.4}));
+    // reconstructed image bands depend on maxOrd
+    drawWaferBands(gWaf, img1, img2, maxOrd);
+
+    // ---- 2D wafer canvas ----
+    // ideal SMO (captures ±2 here) reproduces the exact two-slit mask; missing orders add fringes.
+    drawWafer2D(maxOrd);
+
+    // ---- metrics ----
+    updateMetrics(orders, maxOrd);
+  }
+
+  function drawWaferBands(g, img1, img2, maxOrd){
+    if(maxOrd===0){
+      // fully washed out: a wide faint smear, no structure
+      g.appendChild(el("rect",{x:WAFER_X-5,y:(img1+img2)/2-30,width:12,height:60,fill:"#5a4a86",opacity:.4,filter:"url(#soft)"}));
+    } else if(maxOrd===1){
+      // distorted: two soft bands PLUS ghost fringe bands leaking outward (the diffraction creeping in)
+      const mid=(img1+img2)/2, spread=(img2-img1);
+      // ghost fringes above/below and between the two slits
+      [mid-spread*1.1, mid, mid+spread*1.1].forEach(gy=>{
+        g.appendChild(el("rect",{x:WAFER_X-5,y:gy-4,width:12,height:8,fill:"#a06bff",opacity:.28,filter:"url(#soft)"}));
+      });
+      // the two main (but soft, smeared) slit bands
+      [img1,img2].forEach((iy,i)=>g.appendChild(el("rect",{x:WAFER_X-5,y:iy-11,width:12,height:22,
+        fill:i===0?"#c9a6ff":"#8a52ff",opacity:.5,filter:"url(#soft)"})));
+    } else {
+      // ideal SMO: two crisp, clean bands
+      [img1,img2].forEach((iy,i)=>g.appendChild(el("rect",{x:WAFER_X-5,y:iy-6,width:12,height:12,
+        fill:i===0?"#c9a6ff":"#8a52ff",filter:"url(#soft)"})));
+    }
+  }
+
+  // ---- ground-truth mask: exactly two vertical slits (what an IDEAL image reproduces) ----
+  // Precompute the mask's Fourier coefficients once.
+  const RECON_W=150, M_IDEAL=5;           // capturing up to ±M_IDEAL orders = a faithful copy
+  const MASK_COEFF=(function(){
+    const cx=RECON_W/2, sep=RECON_W*0.20, half=RECON_W*0.055;
+    const mask=new Array(RECON_W).fill(0);
+    for(let x=0;x<RECON_W;x++){
+      const d1=Math.abs(x-(cx-sep)), d2=Math.abs(x-(cx+sep));
+      if(d1<half||d2<half) mask[x]=1;
+    }
+    const c={};
+    for(let m=-M_IDEAL;m<=M_IDEAL;m++){
+      let re=0,im=0;
+      for(let x=0;x<RECON_W;x++){const ph=-2*Math.PI*m*x/RECON_W; re+=mask[x]*Math.cos(ph); im+=mask[x]*Math.sin(ph);}
+      c[m]={re:re/RECON_W, im:im/RECON_W};
+    }
+    return c;
+  })();
+
+  // Reconstruct the wafer image from the captured orders.
+  // maxOrd (0,1,2) sets how many of the mask's Fourier orders survive.
+  // Ideal SMO (maxOrd=2 = full capture here) -> completeness=1 -> clean two slits.
+  // Missing orders -> partial sum -> diffraction fringes/ringing creep in.
+  function drawWafer2D(maxOrd, extraReach){
+    const cv=$("wafer2d"), ctx=cv.getContext("2d");
+    const W=cv.width, H=cv.height;
+    ctx.fillStyle="#000"; ctx.fillRect(0,0,W,H);
+
+    const budget = maxOrd<=0 ? 0 : Math.round((maxOrd/2)*M_IDEAL);   // 0 -> 0, 1 -> 3, 2 -> 5
+    const completeness = budget/M_IDEAL;                              // 0..1
+    const FRINGE_EXAG = 2.1;   // amplify the diffraction ripple so distortion is obvious
+
+    // 0-order-only case: nothing but the DC term survives -> a washed-out dim glow (no pattern at all)
+    if(budget===0){
+      const img0=ctx.createImageData(W,H);
+      for(let px=0;px<W;px++){
+        const I=0.30;                       // faint uniform haze = "blurred out"
+        const r=Math.round(120*I), g=Math.round(70*I), b=Math.round(180*I);
+        for(let y=0;y<H;y++){const idx=(y*W+px)*4;img0.data[idx]=r;img0.data[idx+1]=g;img0.data[idx+2]=b;img0.data[idx+3]=255;}
+      }
+      ctx.putImageData(img0,0,0);
+      ctx.fillStyle="rgba(0,0,0,0.25)"; ctx.fillRect(0,0,W,4); ctx.fillRect(0,H-4,W,4);
+      return;
+    }
+
+    const line=new Float32Array(W);
+    let mn=1e9, mx=-1e9;
+    for(let px=0;px<W;px++){
+      const xr = (px/W)*RECON_W;
+      let val=0;
+      for(let m=-budget;m<=budget;m++){
+        const cc=MASK_COEFF[m]; if(!cc) continue;
+        // Only the COMPLETE spectrum gets Lanczos smoothing (ideal SMO = clean two slits).
+        // Any missing order => raw partial sum with AC content amplified => strong Gibbs fringes.
+        let sig=1;
+        if(m!==0){
+          if(completeness>=1){
+            sig=Math.sin(Math.PI*m/(budget+1))/(Math.PI*m/(budget+1));   // smooth, ring-free
+          } else {
+            sig=FRINGE_EXAG;                                             // exaggerated ripple
+          }
+        }
+        const ph=2*Math.PI*m*xr/RECON_W;
+        val += sig*(cc.re*Math.cos(ph)-cc.im*Math.sin(ph));
+      }
+      line[px]=val; if(val<mn)mn=val; if(val>mx)mx=val;
+    }
+    const span=(mx-mn)||1;
+    // contrast stretch: push the ripple harder for incomplete captures so the distortion reads clearly
+    const gamma = completeness>=1 ? 0.9 : 0.62;
+    const img=ctx.createImageData(W,H);
+    for(let px=0;px<W;px++){
+      let I=(line[px]-mn)/span;
+      I=Math.pow(Math.min(1,Math.max(0,I)),gamma);
+      const r=Math.round(178*I), g=Math.round(100*I), b=Math.round(255*I);
+      for(let y=0;y<H;y++){
+        const idx=(y*W+px)*4;
+        img.data[idx]=r; img.data[idx+1]=g; img.data[idx+2]=b; img.data[idx+3]=255;
+      }
+    }
+    ctx.putImageData(img,0,0);
+    ctx.fillStyle="rgba(0,0,0,0.25)";
+    ctx.fillRect(0,0,W,4); ctx.fillRect(0,H-4,W,4);
+  }
+
+  function updateMetrics(orders, maxOrd){
+    const capturedList=[];
+    if(orders.some(o=>o.m===0&&o.captured)) capturedList.push("0");
+    if(orders.some(o=>o.m===1&&o.captured)) capturedList.push("±1");
+    if(orders.some(o=>o.m===2&&o.captured)) capturedList.push("±2");
+    $("m-orders").textContent = capturedList.length?capturedList.join(", "):"none";
+
+    const q=$("m-quality"), pill=$("m-pill"), note=$("m-orders-n");
+    if(maxOrd>=2){
+      q.textContent="Two slits";
+      pill.className="pill good"; pill.textContent="exact mask reproduced";
+      note.textContent="0, ±1 and ±2 all captured — the wafer shows the true two-slit pattern.";
+    } else if(maxOrd===1){
+      q.textContent="Fringes";
+      pill.className="pill mid"; pill.textContent="diffraction fringes creep in";
+      note.textContent="±2 is missing — the slits smear and ripple instead of coming out clean.";
+    } else {
+      q.textContent="Blur";
+      pill.className="pill bad"; pill.textContent="pattern lost";
+      note.textContent="Only the 0 order is captured — the two slits wash out completely.";
+    }
+  }
+
+  // ---- presets ----
+  const PRESETS={
+    zero:   {dipole:0,  na:45, pitch:20, width:40},   // fine pitch throws ±1 out of a small NA => 0 only
+    first:  {dipole:0,  na:98, pitch:33, width:40},   // NA now catches ±1, ±2 still just outside
+    second: {dipole:0,  na:100,pitch:65, width:40},   // coarser pitch pulls ±2 inside => sharp
+    smo:    {dipole:90, na:82, pitch:40, width:35}     // on-axis loses ±2; dipole slides +2 back in
+  };
+  function applyPreset(p){
+    const s=PRESETS[p]; if(!s)return;
+    Object.assign(state,s);
+    $("dipole").value=s.dipole; $("na").value=s.na; $("pitch").value=s.pitch; $("width").value=s.width;
+    render();
+  }
+
+  // ---- wire up ----
+  function bind(id,key){$(id).addEventListener("input",e=>{state[key]=+e.target.value;render();});}
+  bind("dipole","dipole"); bind("na","na"); bind("pitch","pitch"); bind("width","width");
+  document.querySelectorAll(".presets button").forEach(b=>{
+    b.addEventListener("click",()=>applyPreset(b.dataset.p));
+  });
+
+  // inject a soft-glow filter into the svg defs
+  const svg=$("stage");
+  const defs=el("defs",{});
+  defs.innerHTML=`<filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+    <feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
+  svg.insertBefore(defs,svg.firstChild);
+
+  render();
+})();
+</script>
+</body>
+</html>
